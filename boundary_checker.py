@@ -18,7 +18,7 @@ import h5py
 from scipy.stats import pearsonr   
 from tqdm import tqdm
 
-# Define Global Constants
+# Define Global Constants here
 
 # define the edges you want to account for due to drift rate
 BLOCK_SIZE = 500
