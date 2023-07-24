@@ -11,4 +11,5 @@ description = "A pipeline for finding ET signals."
 readme = "readme.rst"
 requires-python = ">=3.9"
 
-
+[tools.setuptools]
+packages = ["cappuccino"]
