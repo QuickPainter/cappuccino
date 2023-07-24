@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools","setuptools-scm",]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cappuccino"
+version = "0.0.0"
+authors = [{name="Caleb Painter", email="painterc2003@gmail.com"}]
+
+description = "A pipeline for finding ET signals."
+readme = "readme.rst"
+requires-python = ">=3.9"
+
+
