@@ -23,3 +23,6 @@ dependencies = [
 
 [tool.setuptools]
 packages = ["cappuccino"]
+
+[project.scripts]
+cappuccino = "cappuccino:main"
