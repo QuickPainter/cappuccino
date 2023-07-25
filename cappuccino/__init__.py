@@ -409,6 +409,7 @@ def filter_hotspots(hotspots,fch1,foff):
 def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hotspots,pearson_threshold,significance_level,edge,block_size):
     """This is the primary filter wrapper, which contains the layers of filters that each cadence must pass through in order to be flagged.
 
+    \b
     Args:
         hf_obs1 (h5 object): h5 Object for first observation |
         hf_obs2 (h5 object): h5 Object for second observation |
@@ -421,7 +422,8 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
         significance_level (int): Minium SNR for a signal to be considered a "signal"
         edge (int): Max range of sliding for pearson correlation. Akin to max drift rate
         block_size (int): Size of hotspot region
-
+    
+    \b
     Returns:
         low_correlations (list): List of integers corresponding to regions that were flagged
         scores (list): Outdated, list of the score of each cadence --> how many boundaries had low correlation.
