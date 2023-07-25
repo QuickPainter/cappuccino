@@ -132,7 +132,7 @@ def get_all_h5_files(target):
 
     for node in unique_nodes:
     # then loop through and grab all the file names
-        node_set = grab_node_file_list(data_dir,node)
+        node_set = get_node_file_list(data_dir,node)
         h5_list.append(node_set)
 
     return h5_list, unique_nodes
@@ -161,7 +161,7 @@ def get_unique_nodes(data_dir):
     unique_nodes.sort()
     return unique_nodes
 
-def grab_node_file_list(data_dir,node_number):
+def get_node_file_list(data_dir,node_number):
     """Returns the list of h5 files associated with a given node
 
     Args:
@@ -406,86 +406,91 @@ def filter_hotspots(hotspots,fch1,foff):
     return all_indexes
 
 
-def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hotspots,pearson_threshold,significance_level,edge):
+def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hotspots,pearson_threshold,significance_level,edge,block_size):
+    """This is the primary filter wrapper, which contains the layers of filters that each cadence must pass through in order to be flagged.
+
+    Args:
+        hf_obs1 (h5 object): h5 Object for first observation |
+        hf_obs2 (h5 object): h5 Object for second observation |
+        hf_obs3 (h5 object): h5 Object for third observation |
+        hf_obs4 (h5 object): h5 Object for fourth observation |
+        hf_obs5 (h5 object): h5 Object for fifth observation |
+        hf_obs6 (h5 object): h5 Object for sixth observation |
+        filtered_hotspots (list): List of integers corresponding to hotspot number |
+        pearson_threshold (int): Correlation threshold for a signal to be considered significant   
+        significance_level (int): Minium SNR for a signal to be considered a "signal"
+        edge (int): Max range of sliding for pearson correlation. Akin to max drift rate
+        block_size (int): Size of hotspot region
+
+    Returns:
+        low_correlations (list): List of integers corresponding to regions that were flagged
+        scores (list): Outdated, list of the score of each cadence --> how many boundaries had low correlation.
+    """
+
+    # first initialize the low correlation list
     low_correlations = []
     scores = []
-    threshold = .5
+
     # we iterate through all of the hotspots
     for i in tqdm(filtered_hotspots):
 
-        # define the block region we are looking at
-        lower = i * 500
-        upper = (i+1) * 500 
+        # define the block region we are looking at 
+        lower = i * block_size
+        upper = (i+1) * block_size 
 
         
         try:
 
             # load the observations for off and ON. Last time bin for first obs, first time bin for seond obs
-            # also check other boundaries
-
-
             row_ON, row_OFF = get_boundary_data(hf_obs1,hf_obs2,lower,upper,edge)
+            # first just check if there are same number of signals in the first ON and OFF. If there aren't pass it on.
             same_signal_number = check_same_signal_number(row_ON,row_OFF,significance_level)
 
-
-            # first just check if there are same number of signals
             if same_signal_number==False:
+                # check for blips --> this will catch little blips which set of the hotspot but are not good signals
                 Obs1 = np.squeeze(hf_obs1['data'][:,:,lower:upper],axis=1)
-                # print(Obs1.shape)
-                print("checking blips")
                 not_constant_signal,threshold_blips = blip_checker(Obs1)                
 
                 if not_constant_signal ==False :
-                    # if it passes the initial check, perform pearson correlation
-
-                    print("Checking correlation")
+                    # if it passes these two initial checks, perform pearson correlation check
                     max_corr, current_shift = pearson_slider(row_ON,row_OFF,pearson_threshold,edge)
 
                     if max_corr < pearson_threshold:
-                        # Obs1 = np.squeeze(hf_obs1['data'][:,:,lower:upper],axis=1)
-                        # check if it is broadband RFI:
-                        print("checking broadband")
+                        # Now check if it is broadband RFI:
                         is_broadband = check_broadband(Obs1)
-                        if is_broadband == False:
-                            
-                            # load entire observation and see if time-summing the signal produces different result
-                            Obs2 = np.squeeze(hf_obs2['data'][:,:,lower-edge:upper+edge],axis=1)
-                            # will catch weak signals
-                            fails_sum,integrated_pearson_score = second_filter(Obs1,Obs2,pearson_threshold,edge)
-                
-                
-                            # then do a check that there is still a strong signal somewhere higher up in the observation --> so not just a little point right at the boundary
-                            # time sum whole observation, and see if signal stands out
-                
-                            # also check if there was just a dim signal in the first OFF, maybe it gets stronger in second bin
-                            second_row_corr,current_shift = pearson_slider(row_ON,Obs2[8],pearson_threshold,edge)
-                            # can also check if same # of signals in middle of next row
-                            check_same_signal_number_middle = check_same_signal_number(row_ON,Obs2[8],significance_level)
 
-                            print("fails sum:",fails_sum)
-                            print("not_constant_signal:",not_constant_signal)
-                            print("second_row_corr",second_row_corr)
-            
-                            # if it passes these tests, check if it zero drift rate. Compare first time from first ON observation to last time from last OFF.
+                        if is_broadband == False:
+                            # load entire observation and see if time-summing the signal produces different result --> signal might be weak
+                            Obs2 = np.squeeze(hf_obs2['data'][:,:,lower-edge:upper+edge],axis=1)
+                            passes_integrated,integrated_pearson_score = second_filter(Obs1,Obs2,pearson_threshold,edge)
+                                
+                            # also check if there was just a dim signal in the first OFF, maybe it gets stronger in second bin.                             
+                            #can also check if same # of signals in middle of next row
+                            second_row_corr,current_shift = pearson_slider(row_ON,Obs2[8],pearson_threshold,edge)
+                            same_signal_number_middle = check_same_signal_number(row_ON,Obs2[8],significance_level)
+
+                            if passes_integrated and second_row_corr < pearson_threshold and same_signal_number_middle == False:
+                            # if it passes these tests, check if it zero drift rate. Compare first time from first ON observation to last OFF.
                             # if it has high correlation at drift rate = 0, then probably not good 
-                            if fails_sum and second_row_corr < pearson_threshold and check_same_signal_number_middle == False:
-                
+
                                 print("Checking Drift Rate")
                 
                                 # sum whole observation and see if zero drift rate, if necessary
                                 obs1_int = Obs1.sum(axis=0)
                 
-                                # load last OFF observation
+                                # load last OFF observation and also sum along time.
                                 Obs6 = np.squeeze(hf_obs6['data'][:,:,lower-edge:upper+edge],axis=1)
                                 obs6_int = Obs6.sum(axis=0)
-                
+            
+                                # see if maximum correlation comes at a shift of zero/one --> would indicate essentially zero drift rate
                                 first_last_corr,current_shift = pearson_slider(obs1_int, obs6_int,pearson_threshold,edge)
                 
                                 if current_shift != 0 and abs(current_shift) != 1:
                 
-                                    # Final check will be to see if all the on signals are in the same place in all the off signals
-                                    # time intensive bc we are loading all the data, so this is the very last check
+                                    # Final check will be to see if all the signal that set off the hotspot are in the same place when you sum the whole observation
+                                    # time intensive bc we are loading all the data, so this is a very last check
                                     print("Second drift check")
+
                                     Obs2 = np.squeeze(hf_obs2['data'][:,:,lower:upper],axis=1)
                                     obs2_int = Obs2.sum(axis=0)
                 
@@ -501,47 +506,42 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
                                     Obs6 = np.squeeze(hf_obs6['data'][:,:,lower:upper],axis=1)
                                     obs6_int = Obs6.sum(axis=0)
                                     
-                                    on_sum = obs1_int+obs3_int+obs5_int
-                                    off_sum = obs2_int+obs4_int+obs6_int
+                                    # on_sum = obs1_int+obs3_int+obs5_int
+                                    # off_sum = obs2_int+obs4_int+obs6_int
                                     whole_sum = obs1_int+obs3_int+obs5_int+obs2_int+obs4_int+obs6_int
 
-                                    on_sum = on_sum/np.max(on_sum)
-                                    off_sum = off_sum/np.max(off_sum)
+                                    # on_sum = on_sum/np.max(on_sum)
+                                    # off_sum = off_sum/np.max(off_sum)
                                     whole_sum = whole_sum/np.max(whole_sum)
-
-                                        
-                                        
 
                                     zero_drift = drift_index_checker(whole_sum, row_ON,significance_level)
                                     
+
+                                    # also check that there is still a legitamate signal at other boundaries --> i.e. it does not just peter out over time
                                     signal_stays_strong = True
 
+                                    # we check the ON signals only
                                     snr_obs3_0, threshold30 = get_snr(Obs3[0],significance_level)
                                     snr_obs3_16, threshold316 = get_snr(Obs3[-1],significance_level)
                                     snr_obs5_0, threshold50 = get_snr(Obs5[0],significance_level)
                                     snr_obs5_16, threshold516 = get_snr(Obs5[-1],significance_level)
 
-
+                                    # we require that there must be a strong signal at the boundary of at least two other ON observations
                                     number_strong_boundaries = 0
-                                    print("checking if signal peters out")
                                     for snr in [snr_obs3_0,snr_obs3_16,snr_obs5_0,snr_obs5_16]:
                                         print(snr)
                                         if snr == True:
                                             number_strong_boundaries += 1
 
-                                    print(number_strong_boundaries)
                                     if number_strong_boundaries <=1:
                                         signal_stays_strong = False
 
-                                    print('zero drift',zero_drift)
-                                    print('signal',signal_stays_strong)
+                                    # if it passes both drift rate and the check that the signal stays strong, we do a last check of the pearson correlation at all boundaries.
                                     if zero_drift == False and signal_stays_strong == True: 
                                         # check other boundaries
+
                                         # boundary 2/5
                                         row_ON2, row_OFF2 = get_boundary_data(hf_obs2,hf_obs3,lower,upper,edge)
-
-                                        
-
                                         max_corr2, current_shift2 = pearson_slider(row_ON2,row_OFF2,pearson_threshold,edge)
                                         # boundary 3/5
                                         row_ON3, row_OFF3 = get_boundary_data(hf_obs3,hf_obs4,lower,upper,edge)
@@ -556,18 +556,17 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
                                         score = 0
 
                                         for corr in [max_corr,max_corr2,max_corr3,max_corr4,max_corr5]:
-                                            print('co:',corr)
                                             if corr < pearson_threshold:
                                                 score +=1 
-                
-                
+    
                                         print('score:',score)
                                         print(f"max correlation was {max_corr}")
                                         print(f"integrated correlation was {integrated_pearson_score}")
                                         print('current shift:',current_shift)
                                         print('firstlastcorr:',first_last_corr)
 
-                                        # only return ones with low correlation on all boundaries
+                                        # only return ones with low correlation on all boundaries.
+                                        # this is part of filter that needs change --> could filter out potential candidates if they fall in RFI heavy region and drift out of block range
                                         if score == 5:
                                             low_correlations.append(i)
                                             scores.append(score)
@@ -584,20 +583,31 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
 
 
 def check_broadband(obs1):
+    """Filter to check for broadband and blip signals in the data
+
+    Args:
+        obs1 (numpy array): 2D array representing observation 1
+
+    Returns:
+        blip_or_broadband (Boolean): True if there is blip or broadband present, false if not
+    """
+
+    # integrated observations both over time and frequency
     obs1_freq_integrated = obs1.sum(axis=1,dtype='float')
     obs1_time_integrated = obs1.sum(axis=0,dtype='float')
 
     blip_or_broadband = False
 
-    # broadband will have a very high snr, can use ~100
+    # broadband will come up as a spike in the frequency integrated observation. A genuine signal would not.
     broadband_threshold = 10
     freq_snr, threshold_freq = get_snr(obs1_freq_integrated,broadband_threshold)
 
     # also check it isnt a blip
+    # a blip will no longer come up as a significant signal when time summing. 
+    # this should potentially be changed, as heavily drifting signals might not pass this check
     time_snr,threshold_time = get_snr(obs1_time_integrated,5)
 
     if freq_snr == True or time_snr==False:
-    # if freq_snr == True:
         blip_or_broadband = True
 
     return blip_or_broadband
@@ -635,19 +645,32 @@ def blip_checker(obs1):
     return not_constant_signal, (threshold2)
 
 def pearson_slider(boundary_ON,boundary_OFF,pearson_threshold,edge):
+    """Function to calculate the pearson correlation between two frequency arrays
+
+    Args:
+        boundary_ON (numpy array): Array for last time slice of an ON observation
+        boundary_OFF (numpy array): Array for first time slice of an OFF observation
+        pearson_threshold (int): Correlation threshold for a signal to be considered significant   
+        edge (int): Max range of sliding for pearson correlation. Akin to max drift rate
+
+    Returns:
+        max_pearson (float): Maximum pearson correlation achieved.
+        current_shift (int): Shift between ON and OFF observation required to obtain a pearson score above the pearson threshold
+    """
 
     # this initializes the psosible edges we iterate over for the pearson. We start at zero and work our way out, so as to be time efficient.
+    # most signals have close to zero drift
     possible_drifts = [0]
     for i in range(1,edge):
         possible_drifts.append(i)
         possible_drifts.append(-i)
 
-    max_corr = 0
     max_pearson = 0
     current_shift = 0
 
     x = boundary_ON
 
+    # take a sliding slice of the OFF observation to compare to the ON 
     for i in possible_drifts:
         current_shift = i
         if i != edge:
@@ -655,23 +678,35 @@ def pearson_slider(boundary_ON,boundary_OFF,pearson_threshold,edge):
         else: 
             y = boundary_OFF[(edge+i):]
 
-        # print(len(x),len(y))
-
+        # divide by max to normalize
         x= x / np.max(x)
         y = y / np.max(y)
         pearson = pearsonr(x,y)
-
         pearson  = pearson[0]
+
+        # keep track of highest pearson value yet achieved
         if pearson > max_pearson:
             max_pearson = pearson
+            # if pearson ever crosses the pearson threshold, halt the process to save time.
             if pearson > pearson_threshold:
-                # print("ran iterations:",i)
                 break
 
     return max_pearson, current_shift
 
 # this performs a similar step as pearson but will check time sum and i
 def second_filter(obs1,obs2,pearson_threshold,edge):
+    """Takes two observations and integrates them over time to see if that will produce a stronger signal that does have a high correlation.
+
+    Args:
+        obs1 (numpy array): 2D array representing observation 1
+        obs2 (numpy array): 2D array representing observation 2
+        pearson_threshold (int): Correlation threshold for a signal to be considered significant   
+        edge (int): Max range of sliding for pearson correlation. Akin to max drift rate
+
+    Returns:
+        still_good (Boolean): True if integrated pearson score is < pearson threshold |
+        integrated_pearson_score (int): The maximum correlation achieved from the integrated correlation
+    """
 
     still_good = False
     # first try summing and checking correlation again --> possible the signal was too weak the first time
@@ -685,19 +720,31 @@ def second_filter(obs1,obs2,pearson_threshold,edge):
     return still_good, integrated_pearson_score
 
 def drift_index_checker(whole_sum, row_ON,significance_level):
-    print("Checking Drift")
+    """Checks if drift rate == 0. Compares all signals that set off hotspot to those in the full observation summed
+
+    Args:
+        whole_sum (numpy array): 2D array representing entire cadence summed 
+        row_ON (numpy array): 1D array representing last time row of first observation
+        significance_level (int): Minimum SNR for signal to be considered present
+
+    Returns:
+        zero_drift (Boolean): True if signal has zero drift, False if not
+    """
+
+
     zero_drift = False
 
-    # we can also check if when we sum the entire observation, we pick up the signal that set off the hotspot. 
+    # we check if when we sum the entire observation, we pick up the signal that set off the hotspot. 
     # Will only do this if there are same number of peaks in on ROw and summed, in case there was a genuine signal in the ON row
 
+    # get the peaks in the last row and the summed cadence
     hotspot_snr, hotspot_threshold = get_snr(row_ON,significance_level)
     summed_snr, summed_threshold = get_snr(whole_sum,significance_level)
 
     hotspot_indices = np.where(np.array(row_ON) > hotspot_threshold)[0].tolist()
     summed_indices = np.where(np.array(whole_sum) > summed_threshold)[0].tolist()
 
-    # do same filtering as above
+    # average any points very close together
     if len(hotspot_indices) != 0 and len(summed_indices) != 0:
 
         filtered_hotspot_indices = [hotspot_indices[0]]
@@ -718,21 +765,35 @@ def drift_index_checker(whole_sum, row_ON,significance_level):
                 filtered_summed_indices.append(i)
 
         # check if all hotspots picked up in ON row are in the summed
-        print(filtered_summed_indices, filtered_hotspot_indices)
         all = 0
         for i in filtered_hotspot_indices:
             for j in filtered_summed_indices:
                 if abs(i-j) < 2:
                     all +=1 
         if all == len(filtered_hotspot_indices):
-            print("ZERO DRIFT")
             zero_drift = True
 
     return zero_drift
 
 
 def main_boundary_checker(h5_files,pearson_threshold,block_size,significance_level,edge):
-        # load data
+    """Main wrapper function for all the hotspot finding and filtering that takes place
+
+    Args:
+        h5_files (list): list of h5 objects for each observation in the cadence
+        filtered_hotspots (list): List of integers corresponding to hotspot number |
+        pearson_threshold (int): Correlation threshold for a signal to be considered significant   
+        block_size (int): Size of hotspot region
+        significance_level (int): Minium SNR for a signal to be considered a "signal"
+        edge (int): Max range of sliding for pearson correlation. Akin to max drift rate
+    
+    Returns:
+        low_correlation_frequencies (list): List of all frequencies that were flagged
+        scores (list): Outdated, corresponding scores for all of those frequencies
+
+    """
+    
+    # load data
     hf_ON = h5py.File(h5_files[0], 'r')
     hf_OFF = h5py.File(h5_files[1], 'r')
     hf_ON2 = h5py.File(h5_files[2], 'r')
@@ -761,7 +822,7 @@ def main_boundary_checker(h5_files,pearson_threshold,block_size,significance_lev
     print("# post filtering",len(filtered_hotspots))
 
     # find regions of low correlation
-    low_correlations,scores = check_hotspots(hf_ON,hf_OFF,hf_ON2,hf_OFF2,hf_ON3,hf_OFF3,filtered_hotspots,pearson_threshold,significance_level,edge)
+    low_correlations,scores = check_hotspots(hf_ON,hf_OFF,hf_ON2,hf_OFF2,hf_ON3,hf_OFF3,filtered_hotspots,pearson_threshold,significance_level,edge,block_size)
     print(f"Found {len(low_correlations)} regions of low correlation")
 
     # save regions to csv file, in current directory
