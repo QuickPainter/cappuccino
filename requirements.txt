@@ -4,4 +4,6 @@ pandas
 statistics
 scipy
 h5py
+hdf5plugin
 tqdm
+argparse
