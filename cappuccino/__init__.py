@@ -114,9 +114,9 @@ def get_all_h5_files(target):
     Args:
         target (str): Galaxy/Star (or overarching file folder) you are looking at
 
-    Returns:
-        h5_list (list): list containaing cadences grouped together as tuples
-        unique_nodes (list): list of all unique nodes
+    :Returns:
+        - h5_list (list): list containaing cadences grouped together as tuples
+        - unique_nodes (list): list of all unique nodes
     """
 
 
@@ -139,24 +139,40 @@ def get_all_h5_files(target):
 
 
 def get_unique_nodes(data_dir):
+    """Grabs the unique blc nodes in a given directory
+
+    Args:
+        data_dir (str): Data directory to search through
+
+    Returns:
+        unique_nodes (list): List of all unique nodes in the directory, sorted.
+    """
     node_list = []
     for dirname, _, filenames in os.walk(data_dir):
         for filename in filenames:
+            # we remove the start and end nodes as these have low sensitivity
             if "blc" in filename and (filename[4] != '7') and (filename[4] != '0'):
                 node_list.append(filename[:5])
 
     node_set = set(node_list)
-    print(node_set)
+    print("Unique nodes:", node_set)
 
     unique_nodes = sorted(node_set)
     unique_nodes.sort()
     return unique_nodes
 
 def grab_node_file_list(data_dir,node_number):
-    '''
-    returns h5 and dat file path from given directory, ordered correctly
-    '''
-    
+    """Returns the list of h5 files associated with a given node
+
+    Args:
+        data_dir (str): Data directory to search through
+        node_number (str): Node number to filter on
+
+    Returns:
+        data_list (list): List of h5 files that make up the cadence, sorted chronlogically
+    """
+
+
     ## h5 list
     data_list = []
     for dirname, _, filenames in os.walk(data_dir):
@@ -169,115 +185,163 @@ def grab_node_file_list(data_dir,node_number):
     return data_list
 
 
-# Define Necessary Functions
 def get_boundary_data(hf_ON,hf_OFF,lower,upper,edge):
+    """Takes two observations, returns frequency snippets closest in time to each other.
+
+    Args:
+        hf_ON (str): The observation that came chronologically first.
+        hf_OFF (str): The observation that came second.
+        lower (int): Lower index on the frequency range.
+        upper (int): Upper index on the frequency range.
+        edge (_type_): Additional frequency range to account for drift between first and second observations.
+
+    Returns:
+        row_ON (numpy array): The frequency values in specificed range from last time bin in first observation.
+        row_OFF (numpy array): The frequency values in specificed range from first time bin in second observation.
+
+    """
 
     row_ON = np.squeeze(hf_ON['data'][-1:,:,lower:upper],axis=1)[0]
+
+    # we also grab the additional edge data to iterate over when calculating correlation
     row_OFF = np.squeeze(hf_OFF['data'][:1,:,lower-edge:upper+edge],axis=1)[0]
 
     return row_ON,row_OFF
 
 
 def get_last_time_row(file):
+    """Grabs the last time bin from a file. Used to iterate over to find 'hotspots' (regions with a strong signal)
+
+    Args:
+        file (str): Observation in question
+
+    Returns:
+        last_time_row (numpy array): Frequency values for last time bin in observation
+    """
     hf = h5py.File(file, 'r')
     data = hf.get('data')
     last_time_row = data[-1]
     return last_time_row[0]
 
-def get_freq_slices(last_time_row,f_start,f_end):
-    freq_block = last_time_row[f_start:f_end]
-    return freq_block
+# def get_freq_slices(last_time_row,f_start,f_end):
+#     """Grabs specific frequency range from 
+
+#     Args:
+#         last_time_row (_type_): _description_
+#         f_start (_type_): _description_
+#         f_end (_type_): _description_
+
+#     Returns:
+#         _type_: _description_
+#     """
+#     freq_block = last_time_row[f_start:f_end]
+#     return freq_block
 
 def get_snr(sliced,sigma_multiplier):
+    """Checks for any high SNR bins in the given frequency snippet and flags them.
+
+    Args:
+        sliced (numpy array): frequency snippet from observation
+        sigma_multiplier (int): SNR threshold for a signal to count as significant
+
+    Returns:
+        snr (boolean): True if there is a high SNR signal, False if not
+        threshold (int): Threshold that normalized data needs to be above in order to count as signal. 
+    """
+
     snr = False
     # divide by max to make numbers smaller
     sliced = sliced/np.max(sliced)
 
-    lower_quantile = np.quantile(sliced,.7)
+    # remove top 30 percent of values to get real baseline (in case there are many high value signals). 
+    lower_quantile = np.quantile(sliced,.85)
     lower_slice = sliced[sliced < lower_quantile]
+
+    # get median and standard deviation of baseline
     median = np.median(lower_slice)
     sigma = np.std(lower_slice)
 
-    # print('sigma',sigma)
-    # print('median',median)
-    # print('sigma_multiplier',sigma_multiplier)
+    # calcualate threshold as median of baseline + SNR * standard deviation
     threshold = median+sigma_multiplier*sigma
     if np.max(sliced) > threshold:
         snr = True
-        # plt.axhline(y=threshold)
-        # plt.plot(slice)
-        # plt.show()
 
     return snr, threshold
 
 def get_first_round_snr(sliced,first_round_multiplier):
+    """Preliminary filter to find any regions with a certain SNR that is smaller than the specificed cutoff.
+        Calculating the quantile of a lot of regions is time intensive, so better to narrow down search field first. 
+
+    Args:
+        sliced (numpy array): frequency snippet from observation
+        first_round_multiplier (int): Lower SNR required for regions to get passed on to next round of filtering
+
+    Returns:
+        snr (boolean): True if there is a high SNR signal, False if not
+        threshold (int): Threshold that normalized data needs to be above in order to count as signal. 
+    """
+
     snr = False
-    # divide by max to make numbers smaller
     sliced = sliced/np.max(sliced)
 
     median = np.median(sliced)
     sigma = np.std(sliced)
-
-    # print('sigma',sigma)
-    # print('median',median)
-    # print('sigma_multiplier',sigma_multiplier)
     threshold = median+first_round_multiplier*sigma
 
     if threshold <= 1:
         snr = True
-        # plt.axhline(y=threshold)
-        # plt.plot(slice)
-        # plt.show()
 
     return snr, threshold
 
-
-def get_snr(sliced,sigma_multiplier):
-    snr = False
-    # divide by max to make numbers smaller
-    sliced = sliced/np.max(sliced)
-
-    lower_quantile = np.quantile(sliced,.85)
-    lower_slice = sliced[sliced < lower_quantile]
-    median = np.median(lower_slice)
-    sigma = np.std(lower_slice)
-
-    # print('sigma',sigma)
-    # print('median',median)
-    # print('sigma_multiplier',sigma_multiplier)
-    threshold = median+sigma_multiplier*sigma
-
-    if threshold <= 1:
-        snr = True
-        # plt.axhline(y=threshold)
-        # plt.plot(slice)
-        # plt.show()
-
-    return snr, threshold
     
 def find_hotspots(row,number,block_size,significance_level):
-    first_round = []
-    hotspots = []
-    first_round_multiplier = 5
-    # iterate
-    hotspot_size = 2000
+    """Wrapper function for hotspot finding.
 
+    Args:
+        row (numpy array): Last row of first observation in cadence. Will be the one iterated over to check for hotspots
+        number (int): Number of distinct regions of block_size in the row
+        block_size (int): Number of frequency bins in the region
+        significance_level (int): SNR threshold for signal to count as significant
+
+    Returns:
+        hotspots (list): List of block numbers as integers with a high signal in them
+    """
+
+    # list of all block regions that pass first round filtering
+    first_round = []
+    # list of all block regions that pass second round filtering
+    hotspots = []
+    # lower SNR required for first round filtering
+    first_round_multiplier = 5
+
+    # iterate through regions for first filter
     for i in tqdm(range(0,number)):
         slice_ON = row[i*block_size:(i+1)*block_size:]
         snr,threshold = get_first_round_snr(slice_ON,first_round_multiplier)
         if snr:
             first_round.append(i)
 
+    # iterate through remaining regions for second filter
     for i in tqdm(first_round):
         slice_ON = row[i*block_size:(i+1)*block_size:]
         snr,threshold = get_snr(slice_ON,significance_level)
         if snr:
             hotspots.append(i)
 
-    
+    # return all regions with a signal above specificed significance_level
     return hotspots
 
 def get_file_properties(f):
+    """Get file properties of given h5 file.
+
+    Args:
+        f (h5 object): h5 file corresponding to desired observation
+
+    Returns:
+        fch1 (float): start frequency of observation in Mhz
+        foff (float): frequency of each bin in Mhz
+
+    """
     tstart=f['data'].attrs['tstart']
     fch1=f['data'].attrs['fch1']
     foff=f['data'].attrs['foff']
@@ -291,23 +355,44 @@ def get_file_properties(f):
     return fch1, foff
 
 def get_correct_index(freq,fch1,foff):
+    """Converts frequency to index integer for numpy array
+
+    Args:
+        freq (float): frequency region to be converted to index integer
+        fch1 (float): start frequency of observation in Mhz
+        foff (float): frequency of each bin in Mhz
+
+    Returns:
+        lower_bound (int): Lower index flanking freq
+        upper_bound (int): Upper index flanking freq
+
+    """
     distance = fch1 - freq
     number = int(np.round(-distance/foff))
     bound = 250
     return number+bound, number-bound
 
 def filter_hotspots(hotspots,fch1,foff):
-    '''
-    Take out hotspots that are falling in especially heavy RFI
-    '''
+    """Filters out hotspots in RFI heavy regions. 
+
+    Args:
+        hotspots (list): List of hotspot regions found previously
+        fch1 (float): start frequency of observation in Mhz
+        foff (float): frequency of each bin in Mhz
+
+    Returns:
+        all_indexes: Remaining hotspots after filtering
+    """
 
     # define regions that are RFI heavy:
     bad_regions = [[700,830],[1160,1340],[1370,1390],[1520,1630],[1675,1695],[1915,1935],[2025,2035],[2100,2120],[2180,2280],[2300,2360],[3800,4200],[4680,4800],[11000,11180]]
 
-    ## first convert hotspots ids to frequency channels
+    # first convert hotspots indexes to frequency channels
     hotspots_frequencies = np.array([int((fch1+foff*(i*500))) for i in hotspots])
 
+
     all_indexes = []
+    # iterate through bad regions and remove all hotspots in them
     for i in bad_regions:
         bottom = int(i[0])
         top = int(i[1])
@@ -317,7 +402,7 @@ def filter_hotspots(hotspots,fch1,foff):
         for i in indexes:
             all_indexes.append(i)
 
-
+    # return filtered hotspots
     return all_indexes
 
 
