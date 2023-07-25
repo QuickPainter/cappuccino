@@ -18,29 +18,6 @@ import traceback
 import hdf5plugin
 import argparse
 
-# Define Global Constants here
-
-# block size is how large of an area we are searching for signals in
-BLOCK_SIZE = 500
-
-# edge is how far we will slide the two boundaries to match them up. On average there is a 30s slew time between observation.
-EDGE = 50
-
-# significance level is how strong a signal must be so that we flag the area and do a more detailed filtering.
-SIGNIFICANCE_LEVEL = 10
-
-# the minimum correlation score required to reject a signal as being strongly correlated.
-# pearson_threshold = .3
-
-# this initializes the psosible edges we iterate over for the pearson. We start at zero and work our way out, so as to be time efficient.
-possible_drifts = [0]
-for i in range(1,EDGE):
-    possible_drifts.append(i)
-    possible_drifts.append(-i)
-
-#,[2180,2200],[4000,4200],[10800,11000]]
-bad_regions = [[700,830],[1370,1390],[1520,1630],[1160,1340],[1675,1695],[2180,2280],[2025,2035],[2100,2120],[1915,1935],[2300,2360],[3800,4200],[4680,4800],[11000,11180]]
-
 
 def main():
     """This is the main function.
@@ -49,73 +26,81 @@ def main():
         candidates_df_name (_type_): _description_
     """
 
+
+    ## load all parameters of the pipeline
     parser = argparse.ArgumentParser(
                     prog='Cappuccino',
                     description='A cross-correlation based filter to find ET signals in GBT data.',
                     epilog="Documentation: https://bsrc-cappuccino.readthedocs.io/en/latest/")
 
     
-    parser.add_argument('-b', '--blocksize',dest='blocksize', help="the block size",default=500,action="store")
-    parser.add_argument('-p', '--pearson_threshold',dest='pearson_threshold', help="the pearson threshold",default=.3,action="store")
+    parser.add_argument('-b', '--block_size',dest='block_size', help="block size",default=500,action="store")
+    parser.add_argument('-p', '--pearson_threshold',dest='pearson_threshold', help="pearson threshold",default=.3,action="store")
+    parser.add_argument('-s', '--significance_level',dest='significance_level', help="mimimum SNR for a signal",default=10,action="store")
+    parser.add_argument('-e', '--edge',dest='edge', help="maximum drift rate in units of frequency bin (~2.79 Hz)",default=50,action="store")
 
     args = vars(parser.parse_args())
 
-    blocksize = args["blocksize"]
-    pearson_threshold = args['pearson_threshold']
+    # block size is how large of a frequency range we iterate over while searching for signals
+    block_size = int(args["block_size"])
+    # the minimum correlation score required to reject a signal as being strongly correlated.
+    pearson_threshold = float(args['pearson_threshold'])
+    # significance level is how strong a signal must be so that we flag the area and do a more detailed filtering.
+    significance_level = int(args["significance_level"])
+    # edge is the maximum extent we will slide the two boundaries to match them up. On average there is a 30s slew time between observation. 
+    # --> If we assume a max drift rate of 4 Hz/s, this corresponds to 120Hz, which is ~43 frequency bins
+    edge = int(args["edge"])
 
-    print(blocksize,pearson_threshold)
 
 
-    # check if candidates database is set up, if not then initialize it
+    # check if candidates database is set up, if not then initialize it. This is where the candidates will be stored
     main_dir = os.getcwd() + "/"
-    df_name = f'second_updated_candidate_events_sigma_{SIGNIFICANCE_LEVEL}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{BLOCK_SIZE}_edge_{EDGE}.csv'
+    df_name = f'second_updated_candidate_events_sigma_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
 
     db_exists = os.path.exists(main_dir+df_name)
     if db_exists == False:
         print("Creating candidates database as ",df_name)
         candidates = pd.DataFrame(columns=["Primary File","Frequency","All Files","Score"])
         candidates.to_csv(main_dir+df_name,index=False)
-   
+    else:
+        print("Candidates database already exists:",df_name)
 
+
+    # define the target list you want to search through. These should be folders in the current directory, with .h5 files of entire cadences in each of them
     target_list = ['AND_II','AND_I', 'AND_X', 'AND_XI', 'AND_XIV', 'AND_XVI', 'AND_XXIII', 'AND_XXIV', 'BOL520', 'CVNI', 'DDO210', 'DRACO', 'DW1','HERCULES', 'HIZSS003', 'IC0010', 'IC0342', 'IC1613', 'LEOA', 'LEOII', 'LEOT', 'LGS3', 'MAFFEI1', 'MAFFEI2', 'MESSIER031', 'MESSIER033', 'MESSIER081', 'MESSIER101', 'MESSIER49', 'MESSIER59', 'MESSIER84', 'MESSIER86', 'MESSIER87', 'NGC0185', 'NGC0628', 'NGC0672 ', 'NGC1052', 'NGC1172 ', 'NGC1400', 'NGC1407', 'NGC2403','NGC2683', 'NGC2787', 'NGC3193', 'NGC3226', 'NGC3344', 'NGC3379', 'NGC4136', 'NGC4168', 'NGC4239', 'NGC4244', 'NGC4258', 'NGC4318', 'NGC4365', 'NGC4387', 'NGC4434', 'NGC4458', 'NGC4473', 'NGC4478', 'NGC4486B', 'NGC4489', 'NGC4551', 'NGC4559', 'NGC4564', 'NGC4600', 'NGC4618', 'NGC4660', 'NGC4736', 'NGC4826', 'NGC5194', 'NGC5195', 'NGC5322', 'NGC5638', 'NGC5813', 'NGC5831', 'NGC584', 'NGC5845', 'NGC5846', 'NGC596', 'NGC636', 'NGC6503', 'NGC6822', 'NGC6946', 'NGC720', 'NGC7454 ', 'NGC7640', 'NGC821', 'PEGASUS', 'SAG_DIR', 'SEXA', 'SEXB', 'SEXDSPH', 'UGC04879', 'UGCA127', 'UMIN']
     candidates = pd.read_csv(main_dir+df_name)
 
+    # iterate through each target, grabbing the correct files. Files get grouped in cadences by node number and put in a list. 
     for target in target_list:        
         print("Running boundary checker for target:",target)
         unique_h5_files,unique_nodes = get_all_h5_files(target)
-        # print total number of files
+        # print total number of files in target folder
         count = sum( [ len(listElem) for listElem in unique_h5_files])
         print(f"{count} files")
+        # change back into main directory
         os.chdir(main_dir)
 
-        # skip spliced for now
         try:
-            # if unique_nodes[0] != "splic":
-            print("Unique Nodes",unique_nodes)
+            # iterate through each node (cadence)
             for i in range(0,len(unique_h5_files)):
+                # for the moment skip spliced files due to their size
                 if unique_nodes[i] != "splic":
+                    # grab the specific cadence to look at
                     h5_files = unique_h5_files[i]
-                    obs1 = h5_files[0]
-                    obs2 = h5_files[1]
-                    obs3 = h5_files[2]
-                    obs4 = h5_files[3]
-                    obs5 = h5_files[4]
-                    obs6 = h5_files[5]
-                    all_files = (obs1,obs2,obs3,obs4,obs5,obs6)
-                    low_correlation_frequencies,scores= main_boundary_checker(obs1,obs2,obs3,obs4,obs5,obs6,pearson_threshold)
+                    # pass the files into the boundary_checker wrapper function. Returns flagged frequencies and respective scores
+                    low_correlation_frequencies,scores= main_boundary_checker(h5_files,pearson_threshold,block_size,significance_level,edge)
 
+                    # append all flagged frequencies to the candidates database
                     for i in range(0,len(low_correlation_frequencies)):
                         freq = low_correlation_frequencies[i]
                         score = scores[i]
-                        file_location = obs1
-                        candidates.loc[len(candidates.index)] = [file_location,freq,all_files,score]
+                        candidates.loc[len(candidates.index)] = [h5_files[0],freq,h5_files,score]
                     print(candidates)
-
+                    
+                    # update candidates database
                     candidates.to_csv(main_dir+df_name,index=False)
                 else: 
                     print("skipping spliced files")
-            # else:
-            #     print(f"Sxkipping {target} b/c spliced")
         except Exception:
             print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
             print(f"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX ERROR ON TARGET {target} XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
@@ -124,15 +109,17 @@ def main():
             print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 
 
-        
-
-    
-
 
 def get_all_h5_files(target):
-    '''
-    We want to return groups of cadences
-    '''
+    """Returns a list containaing cadences grouped together as tuples, as well as a list of all unique nodes
+
+    Args:
+        target (str): Galaxy/Star (or overarching file folder) you are looking at
+
+    Returns:
+        h5_list (list): list containaing cadences grouped together as tuples
+        unique_nodes (list): list of all unique nodes
+    """
 
 
     # initialize list to store h5 files
@@ -185,10 +172,10 @@ def grab_node_file_list(data_dir,node_number):
 
 
 # Define Necessary Functions
-def get_boundary_data(hf_ON,hf_OFF,lower,upper):
+def get_boundary_data(hf_ON,hf_OFF,lower,upper,edge):
 
     row_ON = np.squeeze(hf_ON['data'][-1:,:,lower:upper],axis=1)[0]
-    row_OFF = np.squeeze(hf_OFF['data'][:1,:,lower-EDGE:upper+EDGE],axis=1)[0]
+    row_OFF = np.squeeze(hf_OFF['data'][:1,:,lower-edge:upper+edge],axis=1)[0]
 
     return row_ON,row_OFF
 
@@ -270,7 +257,7 @@ def get_snr(sliced,sigma_multiplier):
 
     return snr, threshold
     
-def find_hotspots(row,number):
+def find_hotspots(row,number,block_size,significance_level):
     first_round = []
     hotspots = []
     first_round_multiplier = 5
@@ -278,14 +265,14 @@ def find_hotspots(row,number):
     hotspot_size = 2000
 
     for i in tqdm(range(0,number)):
-        slice_ON = row[i*BLOCK_SIZE:(i+1)*BLOCK_SIZE:]
+        slice_ON = row[i*block_size:(i+1)*block_size:]
         snr,threshold = get_first_round_snr(slice_ON,first_round_multiplier)
         if snr:
             first_round.append(i)
 
     for i in tqdm(first_round):
-        slice_ON = row[i*BLOCK_SIZE:(i+1)*BLOCK_SIZE:]
-        snr,threshold = get_snr(slice_ON,SIGNIFICANCE_LEVEL)
+        slice_ON = row[i*block_size:(i+1)*block_size:]
+        snr,threshold = get_snr(slice_ON,significance_level)
         if snr:
             hotspots.append(i)
 
@@ -316,11 +303,14 @@ def filter_hotspots(hotspots,fch1,foff):
     Take out hotspots that are falling in especially heavy RFI
     '''
 
+    # define regions that are RFI heavy:
+    bad_regions = [[700,830],[1160,1340],[1370,1390],[1520,1630],[1675,1695],[1915,1935],[2025,2035],[2100,2120],[2180,2280],[2300,2360],[3800,4200],[4680,4800],[11000,11180]]
+
     ## first convert hotspots ids to frequency channels
     hotspots_frequencies = np.array([int((fch1+foff*(i*500))) for i in hotspots])
+
     all_indexes = []
     for i in bad_regions:
-        # print(bad_regions)
         bottom = int(i[0])
         top = int(i[1])
         indexes = np.where(np.logical_and(bottom<hotspots_frequencies, hotspots_frequencies<top))
@@ -333,13 +323,7 @@ def filter_hotspots(hotspots,fch1,foff):
     return all_indexes
 
 
-'''
-Event Detection algorithms
-Nice and short :)
-
- '''
-
-def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hotspots,pearson_threshold):
+def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hotspots,pearson_threshold,significance_level,edge):
     low_correlations = []
     scores = []
     threshold = .5
@@ -357,8 +341,8 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
             # also check other boundaries
 
 
-            row_ON, row_OFF = get_boundary_data(hf_obs1,hf_obs2,lower,upper)
-            same_signal_number = check_same_signal_number(row_ON,row_OFF)
+            row_ON, row_OFF = get_boundary_data(hf_obs1,hf_obs2,lower,upper,edge)
+            same_signal_number = check_same_signal_number(row_ON,row_OFF,significance_level)
 
 
             # first just check if there are same number of signals
@@ -372,7 +356,7 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
                     # if it passes the initial check, perform pearson correlation
 
                     print("Checking correlation")
-                    max_corr, current_shift = pearson_slider(row_ON,row_OFF,pearson_threshold)
+                    max_corr, current_shift = pearson_slider(row_ON,row_OFF,pearson_threshold,edge)
 
                     if max_corr < pearson_threshold:
                         # Obs1 = np.squeeze(hf_obs1['data'][:,:,lower:upper],axis=1)
@@ -382,18 +366,18 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
                         if is_broadband == False:
                             
                             # load entire observation and see if time-summing the signal produces different result
-                            Obs2 = np.squeeze(hf_obs2['data'][:,:,lower-EDGE:upper+EDGE],axis=1)
+                            Obs2 = np.squeeze(hf_obs2['data'][:,:,lower-edge:upper+edge],axis=1)
                             # will catch weak signals
-                            fails_sum,integrated_pearson_score = second_filter(Obs1,Obs2,pearson_threshold)
+                            fails_sum,integrated_pearson_score = second_filter(Obs1,Obs2,pearson_threshold,edge)
                 
                 
                             # then do a check that there is still a strong signal somewhere higher up in the observation --> so not just a little point right at the boundary
                             # time sum whole observation, and see if signal stands out
                 
                             # also check if there was just a dim signal in the first OFF, maybe it gets stronger in second bin
-                            second_row_corr,current_shift = pearson_slider(row_ON,Obs2[8],pearson_threshold)
+                            second_row_corr,current_shift = pearson_slider(row_ON,Obs2[8],pearson_threshold,edge)
                             # can also check if same # of signals in middle of next row
-                            check_same_signal_number_middle = check_same_signal_number(row_ON,Obs2[8])
+                            check_same_signal_number_middle = check_same_signal_number(row_ON,Obs2[8],significance_level)
 
                             print("fails sum:",fails_sum)
                             print("not_constant_signal:",not_constant_signal)
@@ -409,10 +393,10 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
                                 obs1_int = Obs1.sum(axis=0)
                 
                                 # load last OFF observation
-                                Obs6 = np.squeeze(hf_obs6['data'][:,:,lower-EDGE:upper+EDGE],axis=1)
+                                Obs6 = np.squeeze(hf_obs6['data'][:,:,lower-edge:upper+edge],axis=1)
                                 obs6_int = Obs6.sum(axis=0)
                 
-                                first_last_corr,current_shift = pearson_slider(obs1_int, obs6_int,pearson_threshold)
+                                first_last_corr,current_shift = pearson_slider(obs1_int, obs6_int,pearson_threshold,edge)
                 
                                 if current_shift != 0 and abs(current_shift) != 1:
                 
@@ -445,14 +429,14 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
                                         
                                         
 
-                                    zero_drift = drift_index_checker(whole_sum, row_ON)
+                                    zero_drift = drift_index_checker(whole_sum, row_ON,significance_level)
                                     
                                     signal_stays_strong = True
 
-                                    snr_obs3_0, threshold30 = get_snr(Obs3[0],SIGNIFICANCE_LEVEL)
-                                    snr_obs3_16, threshold316 = get_snr(Obs3[-1],SIGNIFICANCE_LEVEL)
-                                    snr_obs5_0, threshold50 = get_snr(Obs5[0],SIGNIFICANCE_LEVEL)
-                                    snr_obs5_16, threshold516 = get_snr(Obs5[-1],SIGNIFICANCE_LEVEL)
+                                    snr_obs3_0, threshold30 = get_snr(Obs3[0],significance_level)
+                                    snr_obs3_16, threshold316 = get_snr(Obs3[-1],significance_level)
+                                    snr_obs5_0, threshold50 = get_snr(Obs5[0],significance_level)
+                                    snr_obs5_16, threshold516 = get_snr(Obs5[-1],significance_level)
 
 
                                     number_strong_boundaries = 0
@@ -471,20 +455,20 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
                                     if zero_drift == False and signal_stays_strong == True: 
                                         # check other boundaries
                                         # boundary 2/5
-                                        row_ON2, row_OFF2 = get_boundary_data(hf_obs2,hf_obs3,lower,upper)
+                                        row_ON2, row_OFF2 = get_boundary_data(hf_obs2,hf_obs3,lower,upper,edge)
 
                                         
 
-                                        max_corr2, current_shift2 = pearson_slider(row_ON2,row_OFF2)
+                                        max_corr2, current_shift2 = pearson_slider(row_ON2,row_OFF2,pearson_threshold,edge)
                                         # boundary 3/5
-                                        row_ON3, row_OFF3 = get_boundary_data(hf_obs3,hf_obs4,lower,upper)
-                                        max_corr3, current_shift3 = pearson_slider(row_ON3,row_OFF3)
+                                        row_ON3, row_OFF3 = get_boundary_data(hf_obs3,hf_obs4,lower,upper,edge)
+                                        max_corr3, current_shift3 = pearson_slider(row_ON3,row_OFF3,pearson_threshold,edge)
                                         # boundary 4/5
-                                        row_ON4, row_OFF4 = get_boundary_data(hf_obs4,hf_obs5,lower,upper)
-                                        max_corr4, current_shift4 = pearson_slider(row_ON4,row_OFF4)
+                                        row_ON4, row_OFF4 = get_boundary_data(hf_obs4,hf_obs5,lower,upper,edge)
+                                        max_corr4, current_shift4 = pearson_slider(row_ON4,row_OFF4,pearson_threshold,edge)
                                         # boundary 5/5
-                                        row_ON5, row_OFF5 = get_boundary_data(hf_obs5,hf_obs6,lower,upper)
-                                        max_corr5, current_shift5 = pearson_slider(row_ON5,row_OFF5)
+                                        row_ON5, row_OFF5 = get_boundary_data(hf_obs5,hf_obs6,lower,upper,edge)
+                                        max_corr5, current_shift5 = pearson_slider(row_ON5,row_OFF5,pearson_threshold,edge)
                                         # count how many had low pearson values
                                         score = 0
 
@@ -536,14 +520,14 @@ def check_broadband(obs1):
     return blip_or_broadband
 
 
-def check_same_signal_number(row_ON,row_OFF):
+def check_same_signal_number(row_ON,row_OFF,significance_level):
     
     row_ON = row_ON/np.max(row_ON)
     row_OFF = row_OFF/np.max(row_OFF)
     same_signal_number = False
 
-    snr1, threshold1 = get_snr(row_ON,SIGNIFICANCE_LEVEL)
-    snr6, threshold6 = get_snr(row_OFF,SIGNIFICANCE_LEVEL)
+    snr1, threshold1 = get_snr(row_ON,significance_level)
+    snr6, threshold6 = get_snr(row_OFF,significance_level)
 
     indicesON = np.where(np.array(row_ON) > threshold1)[0].tolist()
     indicesOFF = np.where(np.array(row_OFF) > threshold6)[0].tolist()
@@ -567,7 +551,14 @@ def blip_checker(obs1):
 
     return not_constant_signal, (threshold2)
 
-def pearson_slider(boundary_ON,boundary_OFF,pearson_threshold):
+def pearson_slider(boundary_ON,boundary_OFF,pearson_threshold,edge):
+
+    # this initializes the psosible edges we iterate over for the pearson. We start at zero and work our way out, so as to be time efficient.
+    possible_drifts = [0]
+    for i in range(1,edge):
+        possible_drifts.append(i)
+        possible_drifts.append(-i)
+
     max_corr = 0
     max_pearson = 0
     current_shift = 0
@@ -576,10 +567,10 @@ def pearson_slider(boundary_ON,boundary_OFF,pearson_threshold):
 
     for i in possible_drifts:
         current_shift = i
-        if i != EDGE:
-            y = boundary_OFF[(EDGE+i):-(EDGE-i)]
+        if i != edge:
+            y = boundary_OFF[(edge+i):-(edge-i)]
         else: 
-            y = boundary_OFF[(EDGE+i):]
+            y = boundary_OFF[(edge+i):]
 
         # print(len(x),len(y))
 
@@ -597,28 +588,28 @@ def pearson_slider(boundary_ON,boundary_OFF,pearson_threshold):
     return max_pearson, current_shift
 
 # this performs a similar step as pearson but will check time sum and i
-def second_filter(obs1,obs2,pearson_threshold):
+def second_filter(obs1,obs2,pearson_threshold,edge):
 
     still_good = False
     # first try summing and checking correlation again --> possible the signal was too weak the first time
     obs1_time_integrated = obs1.sum(axis=0,dtype='float')
     obs2_time_integrated = obs2.sum(axis=0,dtype='float')
-    integrated_pearson_score, current_shift = pearson_slider(obs1_time_integrated,obs2_time_integrated,pearson_threshold)
+    integrated_pearson_score, current_shift = pearson_slider(obs1_time_integrated,obs2_time_integrated,pearson_threshold,edge)
     
     if integrated_pearson_score < pearson_threshold:
         still_good = True
 
     return still_good, integrated_pearson_score
 
-def drift_index_checker(whole_sum, row_ON):
+def drift_index_checker(whole_sum, row_ON,significance_level):
     print("Checking Drift")
     zero_drift = False
 
     # we can also check if when we sum the entire observation, we pick up the signal that set off the hotspot. 
     # Will only do this if there are same number of peaks in on ROw and summed, in case there was a genuine signal in the ON row
 
-    hotspot_snr, hotspot_threshold = get_snr(row_ON,SIGNIFICANCE_LEVEL)
-    summed_snr, summed_threshold = get_snr(whole_sum,SIGNIFICANCE_LEVEL)
+    hotspot_snr, hotspot_threshold = get_snr(row_ON,significance_level)
+    summed_snr, summed_threshold = get_snr(whole_sum,significance_level)
 
     hotspot_indices = np.where(np.array(row_ON) > hotspot_threshold)[0].tolist()
     summed_indices = np.where(np.array(whole_sum) > summed_threshold)[0].tolist()
@@ -657,30 +648,27 @@ def drift_index_checker(whole_sum, row_ON):
     return zero_drift
 
 
-def main_boundary_checker(obs1,obs2,obs3,obs4,obs5,obs6,pearson_threshold):
-    print("Now running on ",(obs1,obs2,obs3,obs4,obs5,obs6))
-
-    
-    # load data
-    hf_ON = h5py.File(obs1, 'r')
-    hf_OFF = h5py.File(obs2, 'r')
-    hf_ON2 = h5py.File(obs3, 'r')
-    hf_OFF2 = h5py.File(obs4, 'r')
-    hf_ON3 = h5py.File(obs5, 'r')
-    hf_OFF3 = h5py.File(obs6, 'r')
+def main_boundary_checker(h5_files,pearson_threshold,block_size,significance_level,edge):
+        # load data
+    hf_ON = h5py.File(h5_files[0], 'r')
+    hf_OFF = h5py.File(h5_files[1], 'r')
+    hf_ON2 = h5py.File(h5_files[2], 'r')
+    hf_OFF2 = h5py.File(h5_files[3], 'r')
+    hf_ON3 = h5py.File(h5_files[4], 'r')
+    hf_OFF3 = h5py.File(h5_files[5], 'r')
 
 
 
     # grab last row to find hotspots
-    last_time_row_ON = get_last_time_row(obs1)
+    last_time_row_ON = get_last_time_row(h5_files[0])
 
     # find file frequency information
     fch1,foff = get_file_properties(hf_ON)
 
     # calculate number of iterations needed and find hotspots
-    number = int(np.round(len(last_time_row_ON)/BLOCK_SIZE))
+    number = int(np.round(len(last_time_row_ON)/block_size))
     # record interesting freq chunks
-    hotspots_ON = find_hotspots(last_time_row_ON,number)
+    hotspots_ON = find_hotspots(last_time_row_ON,number,block_size,significance_level)
     # hotspots_OFF = find_hotspots(last_time_row_OFF)
     print("# of hotspots:",len(hotspots_ON))
 
@@ -690,7 +678,7 @@ def main_boundary_checker(obs1,obs2,obs3,obs4,obs5,obs6,pearson_threshold):
     print("# post filtering",len(filtered_hotspots))
 
     # find regions of low correlation
-    low_correlations,scores = check_hotspots(hf_ON,hf_OFF,hf_ON2,hf_OFF2,hf_ON3,hf_OFF3,filtered_hotspots,pearson_threshold)
+    low_correlations,scores = check_hotspots(hf_ON,hf_OFF,hf_ON2,hf_OFF2,hf_ON3,hf_OFF3,filtered_hotspots,pearson_threshold,significance_level,edge)
     print(f"Found {len(low_correlations)} regions of low correlation")
 
     # save regions to csv file, in current directory
