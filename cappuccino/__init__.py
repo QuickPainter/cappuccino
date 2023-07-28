@@ -39,7 +39,7 @@ def main():
     parser.add_argument('-p', '--pearson_threshold',dest='pearson_threshold', help="pearson threshold",default=.3,action="store")
     parser.add_argument('-s', '--significance_level',dest='significance_level', help="mimimum SNR for a signal",default=10,action="store")
     parser.add_argument('-e', '--edge',dest='edge', help="maximum drift rate in units of frequency bin (~2.79 Hz)",default=50,action="store")
-    parser.add_argument('-f', '--files',dest='fiels', help="files",action="store")
+    parser.add_argument('-f', '--files',dest='fiels', help="directory of text file with files list",default=None,action="store")
 
     args = vars(parser.parse_args())
 
@@ -58,7 +58,9 @@ def main():
     # check if candidates database is set up, if not then initialize it. This is where the candidates will be stored
     main_dir = os.getcwd() + "/"
     df_name = f're_candidate_events_sigma_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
+    failures_name = f'failed_events_sigma_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
 
+    # initialize candidates db
     db_exists = os.path.exists(main_dir+df_name)
     if db_exists == False:
         print("Creating candidates database as ",df_name)
@@ -67,12 +69,21 @@ def main():
     else:
         print("Candidates database already exists:",df_name)
 
+    # initialize failures db
+    db_exists = os.path.exists(main_dir+failures_name)
+    if db_exists == False:
+        print("Creating failures database as ",failures_name)
+        failure_database = pd.DataFrame(columns=["Index","All Files"])
+        failure_database.to_csv(main_dir+failures_name,index=False)
+    else:
+        print("Failures database already exists:",failures_name)
+
 
     # define the target list you want to search through. These should be folders in the current directory, with .h5 files of entire cadences in each of them
     target_list = ['AND_II','AND_I', 'AND_X', 'AND_XI', 'AND_XIV', 'AND_XVI', 'AND_XXIII', 'AND_XXIV', 'BOL520', 'CVNI', 'DDO210', 'DRACO', 'DW1','HERCULES', 'HIZSS003', 'IC0010', 'IC0342', 'IC1613', 'LEOA', 'LEOII', 'LEOT', 'LGS3', 'MAFFEI1', 'MAFFEI2', 'MESSIER031', 'MESSIER033', 'MESSIER081', 'MESSIER101', 'MESSIER49', 'MESSIER59', 'MESSIER84', 'MESSIER86', 'MESSIER87', 'NGC0185', 'NGC0628', 'NGC0672 ', 'NGC1052', 'NGC1172 ', 'NGC1400', 'NGC1407', 'NGC2403','NGC2683', 'NGC2787', 'NGC3193', 'NGC3226', 'NGC3344', 'NGC3379', 'NGC4136', 'NGC4168', 'NGC4239', 'NGC4244', 'NGC4258', 'NGC4318', 'NGC4365', 'NGC4387', 'NGC4434', 'NGC4458', 'NGC4473', 'NGC4478', 'NGC4486B', 'NGC4489', 'NGC4551', 'NGC4559', 'NGC4564', 'NGC4600', 'NGC4618', 'NGC4660', 'NGC4736', 'NGC4826', 'NGC5194', 'NGC5195', 'NGC5322', 'NGC5638', 'NGC5813', 'NGC5831', 'NGC584', 'NGC5845', 'NGC5846', 'NGC596', 'NGC636', 'NGC6503', 'NGC6822', 'NGC6946', 'NGC720', 'NGC7454 ', 'NGC7640', 'NGC821', 'PEGASUS', 'SAG_DIR', 'SEXA', 'SEXB', 'SEXDSPH', 'UGC04879', 'UGCA127', 'UMIN']
     # target_list = ['DDO210']
     candidates = pd.read_csv(main_dir+df_name)
-
+    failures_db = pd.read_csv(main_dir+failures_name)
     # iterate through each target, grabbing the correct files. Files get grouped in cadences by node number and put in a list. 
     for target in target_list:        
         print("Running boundary checker for target:",target)
@@ -92,23 +103,35 @@ def main():
                     h5_files = unique_h5_files[i]
                     # pass the files into the boundary_checker wrapper function. Returns flagged frequencies and respective scores
                     print("Now running on file ",h5_files[0])
-                    low_correlation_frequencies,scores= main_boundary_checker(h5_files,pearson_threshold,block_size,significance_level,edge)
+                    low_correlation_frequencies,scores,failure_frequencies= main_boundary_checker(h5_files,pearson_threshold,block_size,significance_level,edge)
 
                     # append all flagged frequencies to the candidates database
                     for i in range(0,len(low_correlation_frequencies)):
                         freq = low_correlation_frequencies[i]
                         score = scores[i]
                         candidates.loc[len(candidates.index)] = [h5_files[0],freq,h5_files,score]
+                        
+                    for i in range(0,len(failure_frequencies)):
+                        failure_freq = failure_frequencies[i]
+                        failures_db.loc[len(failures_db.index)] = [failure_freq,h5_files]
+
                     print(candidates)
                     
                     # update candidates database
                     candidates.to_csv(main_dir+df_name,index=False)
+                    failures_db.to_csv(main_dir+failures_name,index=False)
+
                 else: 
                     print("skipping spliced files")
         except Exception:
             print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
             print(f"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX ERROR ON TARGET {target} XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
             print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
+
+            # keep track of targets that straight up fail
+            failures_db.loc[len(failures_db.index)] = ["All",h5_files]
+            failures_db.to_csv(main_dir+failures_name,index=False)
+
             print(traceback.print_exc())
 
 
@@ -464,8 +487,8 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
 
     # first initialize the low correlation list
     low_correlations = []
+    failures = []
     scores = []
-    passers = []
 
     # we iterate through all of the hotspots
     for i in tqdm(filtered_hotspots):
@@ -521,189 +544,205 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
 
                     # we can also check the last ON row with the entire ON observation summed
                     not_drifting = drift_index_checker(primary_time_integrated, row_ON,significance_level)
-
+                    print("not drifting",not_drifting)
                     if is_broadband == False and not_drifting == False:
                         # load entire observation and see if time-summing the signal produces different result --> signal might be weak
                         secondary_obs = np.squeeze(primary_hf_OFF['data'][:,:,lower-edge:upper+edge],axis=1)
-
                         secondary_time_integrated = secondary_obs.sum(axis=0,dtype='float')
 
-                        passes_integrated,integrated_pearson_score = second_filter(primary_time_integrated,secondary_time_integrated,pearson_threshold,edge)
+                        # first check same signal number:
                         check_same_signal_number_integrated, integrated_signal_number = check_same_signal_number(primary_time_integrated,secondary_time_integrated,significance_level)
-                        # also check if there was just a dim signal in the first OFF, maybe it gets stronger in second bin.                             
-                        #can also check if same # of signals in middle of next row
-                        second_row_corr,current_shift = pearson_slider(row_ON,secondary_obs[8],pearson_threshold,edge)
-                        same_signal_number_middle, middle_signal_number = check_same_signal_number(row_ON,secondary_obs[8],significance_level)
 
-                        if passes_integrated and second_row_corr < pearson_threshold and same_signal_number_middle == False:
-                        # if it passes these tests, check if it zero drift rate. Compare first time from first ON observation to last OFF.
-                        # if it has high correlation at drift rate = 0, then probably not good 
-                            # keep track of ones that make it this far
-                            passers.append(i)
-                            print("Checking Drift Rate and Signal Strength")
-            
-                            # sum whole observation and see if zero drift rate, if necessary
-            
-                            # # load last OFF observation and also sum along time.
-                            # Obs6 = np.squeeze(hf_obs6['data'][:,:,lower-edge:upper+edge],axis=1)
-                            # obs6_int = Obs6.sum(axis=0)
-        
-                            # # see if maximum correlation comes at a shift of zero/one --> would indicate essentially zero drift rate
-                            # first_last_corr,current_shift = pearson_slider(primary_time_integrated, obs6_int,pearson_threshold,edge)
-                            
+                        print('same_signal',check_same_signal_number_integrated)
 
-                            # also check that there is still a legitamate signal at other boundaries --> i.e. it does not just peter out over time
-                            signal_stays_strong = True
+                        if check_same_signal_number_integrated == False:
 
-                            # we check the other 5 boundaries in ON observations only 
+                            # then check if integreated pearson correlation is high
+                            passes_integrated,integrated_pearson_score = second_filter(primary_time_integrated,secondary_time_integrated,pearson_threshold,edge)
+                            print('integrated',passes_integrated)
 
-                            obs1_row1 = np.squeeze(primary_hf_ON['data'][:1:,:,lower:upper],axis=1)[0]
-    
-                            obs2_row1 = np.squeeze(hf_ON_2['data'][:1,:,lower:upper],axis=1)[0]
-                            obs2_row16 = np.squeeze(hf_ON_2['data'][-1:,:,lower:upper],axis=1)[0]
-                            
-                            obs3_row1 = np.squeeze(hf_ON_3['data'][:1:,:,lower:upper],axis=1)[0]
-                            obs3_row16 = np.squeeze(hf_ON_3['data'][-1::,:,lower:upper],axis=1)[0]
-
-                            on_boundaries = [obs1_row1,obs2_row1,obs2_row16,obs3_row1,obs3_row16]
-                            on_boundaries_snrs = []
-
-                            for boundary in on_boundaries:
-                                boundary_snr, boundary_threshold = get_snr(boundary,significance_level)
-                                on_boundaries_snrs.append(boundary_snr)
-
-                            # we require that there must be a strong signal at the boundary of at least two other ON observations
-                            number_strong_boundaries = 0
-                            for snr in on_boundaries_snrs:
-                                if snr == True:
-                                    number_strong_boundaries += 1
-
-                            if number_strong_boundaries <=1:
-                                signal_stays_strong = False
-
-                            boundaries_summed = obs1_row1+obs2_row1+obs2_row16+obs3_row1+obs3_row16
-                            boundaries_summed = boundaries_summed/np.max(boundaries_summed)
-                            boundary_drift = drift_index_checker(boundaries_summed, row_ON,significance_level)
-
-        
-            
-                            if signal_stays_strong==True and boundary_drift==False:
-            
-                                # Final check will be to see if all the signal that set off the hotspot are in the same place when you sum the whole observation
-                                # time intensive bc we are loading all the data, so this is a very last check
-                                print("Second drift check")
-                                Obs1 = np.squeeze(hf_obs1['data'][:,:,lower:upper],axis=1)
-                                obs1_int = Obs1.sum(axis=0)
-
-                                Obs2 = np.squeeze(hf_obs2['data'][:,:,lower:upper],axis=1)
-                                obs2_int = Obs2.sum(axis=0)
-            
-                                Obs3 = np.squeeze(hf_obs3['data'][:,:,lower:upper],axis=1)
-                                obs3_int = Obs3.sum(axis=0)
-            
-                                Obs4 = np.squeeze(hf_obs4['data'][:,:,lower:upper],axis=1)
-                                obs4_int = Obs4.sum(axis=0)
-            
-                                Obs5 = np.squeeze(hf_obs5['data'][:,:,lower:upper],axis=1)
-                                obs5_int = Obs5.sum(axis=0)
-            
-                                Obs6 = np.squeeze(hf_obs6['data'][:,:,lower:upper],axis=1)
-                                obs6_int = Obs6.sum(axis=0)
-                                
-                                # on_sum = obs1_int+obs3_int+obs5_int
-                                # off_sum = obs2_int+obs4_int+obs6_int
-                                whole_sum = obs1_int+obs3_int+obs5_int+obs2_int+obs4_int+obs6_int
-
-                                # on_sum = on_sum/np.max(on_sum)
-                                # off_sum = off_sum/np.max(off_sum)
-                                whole_sum = whole_sum/np.max(whole_sum)
-                                row_ON = row_ON/np.max(row_ON)
-
-                                zero_drift = drift_index_checker(whole_sum, row_ON,significance_level)
-                                
-
-                                # calculate k-score
-                                cadence_max = np.max([np.max(Obs1),np.max(Obs2),np.max(Obs3),np.max(Obs4),np.max(Obs5),np.max(Obs6)])
-    
-                                obs1_values = (Obs1/cadence_max).flatten()
-                                obs2_values = (Obs2/cadence_max).flatten()
-                                obs3_values = (Obs3/cadence_max).flatten()
-                                obs4_values = (Obs4/cadence_max).flatten()
-                                obs5_values = (Obs5/cadence_max).flatten()
-                                obs6_values = (Obs6/cadence_max).flatten()
-                            
-                            
-                                k1 = scipy.stats.kurtosis(obs1_values)
-                                k2 = scipy.stats.kurtosis(obs2_values)
-                                k3 = scipy.stats.kurtosis(obs3_values)
-                                k4 = scipy.stats.kurtosis(obs4_values)
-                                k5 = scipy.stats.kurtosis(obs5_values)
-                                k6 = scipy.stats.kurtosis(obs6_values)
-                                k_score = (k1+k3+k5)/(k2+k4+k6)
+                            if passes_integrated:
+                                # also check if there was just a dim signal in the first OFF, maybe it gets stronger in second bin.                             
+                                #can also check if same # of signals in middle of next row
+                                same_signal_number_middle, middle_signal_number = check_same_signal_number(row_ON,secondary_obs[8],significance_level)
+                                print('same_signal_number_middle',same_signal_number_middle)
 
 
-
-                                # if it passes both drift rate and the check that the signal stays strong, we do a last check of the pearson correlation at all boundaries.
-                                if zero_drift == False and k_score > 10: 
-                                    # check other boundaries
-                                    # first load boundary data
-                                    # boundary 2/5
-                                    row_ON2, row_OFF2 = get_boundary_data(hf_obs2,hf_obs3,lower,upper,edge)
-                                    row_ON3, row_OFF3 = get_boundary_data(hf_obs3,hf_obs4,lower,upper,edge)
-                                    row_ON4, row_OFF4 = get_boundary_data(hf_obs4,hf_obs5,lower,upper,edge)
-                                    row_ON5, row_OFF5 = get_boundary_data(hf_obs5,hf_obs6,lower,upper,edge)
-
-                                    # calculate correlations
-                                    max_corr2, current_shift2 = pearson_slider(row_ON2,row_OFF2,pearson_threshold,edge)
-                                    max_corr3, current_shift3 = pearson_slider(row_ON3,row_OFF3,pearson_threshold,edge)
-                                    max_corr4, current_shift4 = pearson_slider(row_ON4,row_OFF4,pearson_threshold,edge)
-                                    max_corr5, current_shift5 = pearson_slider(row_ON5,row_OFF5,pearson_threshold,edge)
-                                    # count how many had low pearson values
-                                    score = 0
-
-                                    for corr in [max_corr,max_corr2,max_corr3,max_corr4,max_corr5]:
-                                        if corr < pearson_threshold:
-                                            score +=1 
-
-                                    # also check signal numbers at boundaries
-                                    same_signal_2, num_signals_2 = check_same_signal_number(row_ON2,row_OFF2,significance_level)
-                                    # boundary 3/5
-                                    same_signal_3,num_signals_3 = check_same_signal_number(row_ON3,row_OFF3,significance_level)
-                                    # boundary 4/5
-                                    same_signal_4,num_signals_4 = check_same_signal_number(row_ON4,row_OFF4,significance_level)
-                                    # boundary 5/5
-                                    same_signal_5,num_signals_5 = check_same_signal_number(row_ON5,row_OFF5,significance_level)
-                                    # count how many had low pearson values
-                                    same_signals = [same_signal_2,same_signal_3,same_signal_4,same_signal_5]
-                                    num_signals = [num_signals_2,num_signals_3,num_signals_4,num_signals_5]
-                                    num_same_signals = 0
+                                if same_signal_number_middle == False:
+                                    # finally do a correlation check --> maybe that is problem
+                                    second_row_corr,current_shift = pearson_slider(row_ON,secondary_obs[8],pearson_threshold,edge)
+                                    print('second_row_corr',second_row_corr)
 
 
-                                    for num in range(0,4):
-                                        # its not okay to have less signals (good signals might drift out of region), but it is okay to have = or > than initial
-                                        if same_signals[num] == True and num_signals[num] >= initial_signal_number:
-                                            num_same_signals +=1
+                                    if second_row_corr < pearson_threshold:
+                                    # if it passes these tests, check if it zero drift rate. Compare first time from first ON observation to last OFF.
+                                    # if it has high correlation at drift rate = 0, then probably not good 
+                                        # keep track of ones that make it this far
+                                        print("Checking Drift Rate and Signal Strength")
+                        
+                                        # sum whole observation and see if zero drift rate, if necessary
+                        
+                                        # # load last OFF observation and also sum along time.
+                                        # Obs6 = np.squeeze(hf_obs6['data'][:,:,lower-edge:upper+edge],axis=1)
+                                        # obs6_int = Obs6.sum(axis=0)
+                    
+                                        # # see if maximum correlation comes at a shift of zero/one --> would indicate essentially zero drift rate
+                                        # first_last_corr,current_shift = pearson_slider(primary_time_integrated, obs6_int,pearson_threshold,edge)
+                                        
+
+                                        # also check that there is still a legitamate signal at other boundaries --> i.e. it does not just peter out over time
+                                        signal_stays_strong = True
+
+                                        # we check the other 5 boundaries in ON observations only 
+
+                                        obs1_row1 = np.squeeze(primary_hf_ON['data'][:1:,:,lower:upper],axis=1)[0]
+                
+                                        obs2_row1 = np.squeeze(hf_ON_2['data'][:1,:,lower:upper],axis=1)[0]
+                                        obs2_row16 = np.squeeze(hf_ON_2['data'][-1:,:,lower:upper],axis=1)[0]
+                                        
+                                        obs3_row1 = np.squeeze(hf_ON_3['data'][:1:,:,lower:upper],axis=1)[0]
+                                        obs3_row16 = np.squeeze(hf_ON_3['data'][-1::,:,lower:upper],axis=1)[0]
+
+                                        on_boundaries = [obs1_row1,obs2_row1,obs2_row16,obs3_row1,obs3_row16]
+                                        on_boundaries_snrs = []
+
+                                        for boundary in on_boundaries:
+                                            boundary_snr, boundary_threshold = get_snr(boundary,significance_level)
+                                            on_boundaries_snrs.append(boundary_snr)
+
+                                        # we require that there must be a strong signal at the boundary of at least two other ON observations
+                                        number_strong_boundaries = 0
+                                        for snr in on_boundaries_snrs:
+                                            if snr == True:
+                                                number_strong_boundaries += 1
+
+                                        if number_strong_boundaries <=1:
+                                            signal_stays_strong = False
+
+                                        boundaries_summed = obs1_row1+obs2_row1+obs2_row16+obs3_row1+obs3_row16
+                                        boundaries_summed = boundaries_summed/np.max(boundaries_summed)
+                                        boundary_drift = drift_index_checker(boundaries_summed, row_ON,significance_level)
+
+                    
+                        
+                                        if signal_stays_strong==True and boundary_drift==False:
+                        
+                                            # Final check will be to see if all the signal that set off the hotspot are in the same place when you sum the whole observation
+                                            # time intensive bc we are loading all the data, so this is a very last check
+                                            print("Second drift check")
+                                            Obs1 = np.squeeze(hf_obs1['data'][:,:,lower:upper],axis=1)
+                                            obs1_int = Obs1.sum(axis=0)
+
+                                            Obs2 = np.squeeze(hf_obs2['data'][:,:,lower:upper],axis=1)
+                                            obs2_int = Obs2.sum(axis=0)
+                        
+                                            Obs3 = np.squeeze(hf_obs3['data'][:,:,lower:upper],axis=1)
+                                            obs3_int = Obs3.sum(axis=0)
+                        
+                                            Obs4 = np.squeeze(hf_obs4['data'][:,:,lower:upper],axis=1)
+                                            obs4_int = Obs4.sum(axis=0)
+                        
+                                            Obs5 = np.squeeze(hf_obs5['data'][:,:,lower:upper],axis=1)
+                                            obs5_int = Obs5.sum(axis=0)
+                        
+                                            Obs6 = np.squeeze(hf_obs6['data'][:,:,lower:upper],axis=1)
+                                            obs6_int = Obs6.sum(axis=0)
+                                            
+                                            # on_sum = obs1_int+obs3_int+obs5_int
+                                            # off_sum = obs2_int+obs4_int+obs6_int
+                                            whole_sum = obs1_int+obs3_int+obs5_int+obs2_int+obs4_int+obs6_int
+
+                                            # on_sum = on_sum/np.max(on_sum)
+                                            # off_sum = off_sum/np.max(off_sum)
+                                            whole_sum = whole_sum/np.max(whole_sum)
+                                            row_ON = row_ON/np.max(row_ON)
+
+                                            zero_drift = drift_index_checker(whole_sum, row_ON,significance_level)
+                                            
+
+                                            # calculate k-score
+                                            cadence_max = np.max([np.max(Obs1),np.max(Obs2),np.max(Obs3),np.max(Obs4),np.max(Obs5),np.max(Obs6)])
+                
+                                            obs1_values = (Obs1/cadence_max).flatten()
+                                            obs2_values = (Obs2/cadence_max).flatten()
+                                            obs3_values = (Obs3/cadence_max).flatten()
+                                            obs4_values = (Obs4/cadence_max).flatten()
+                                            obs5_values = (Obs5/cadence_max).flatten()
+                                            obs6_values = (Obs6/cadence_max).flatten()
+                                        
+                                        
+                                            k1 = scipy.stats.kurtosis(obs1_values)
+                                            k2 = scipy.stats.kurtosis(obs2_values)
+                                            k3 = scipy.stats.kurtosis(obs3_values)
+                                            k4 = scipy.stats.kurtosis(obs4_values)
+                                            k5 = scipy.stats.kurtosis(obs5_values)
+                                            k6 = scipy.stats.kurtosis(obs6_values)
+                                            k_score = (k1+k3+k5)/(k2+k4+k6)
 
 
-                                    print('score:',score)
-                                    print(f"max correlation was {max_corr}")
-                                    print(f"integrated correlation was {integrated_pearson_score}")
-                                    print('current shift:',current_shift)
 
-                                    # only return ones with low correlation on all boundaries.
-                                    if num_same_signals == 0:
-                                        low_correlations.append(i)
-                                        scores.append(k_score)
+                                            # if it passes both drift rate and the check that the signal stays strong, we do a last check of the pearson correlation at all boundaries.
+                                            if zero_drift == False and k_score > 5: 
+                                                # check other boundaries
+                                                # first load boundary data
+                                                # boundary 2/5
+                                                row_ON2, row_OFF2 = get_boundary_data(hf_obs2,hf_obs3,lower,upper,edge)
+                                                row_ON3, row_OFF3 = get_boundary_data(hf_obs3,hf_obs4,lower,upper,edge)
+                                                row_ON4, row_OFF4 = get_boundary_data(hf_obs4,hf_obs5,lower,upper,edge)
+                                                row_ON5, row_OFF5 = get_boundary_data(hf_obs5,hf_obs6,lower,upper,edge)
+
+                                                # calculate correlations
+                                                max_corr2, current_shift2 = pearson_slider(row_ON2,row_OFF2,pearson_threshold,edge)
+                                                max_corr3, current_shift3 = pearson_slider(row_ON3,row_OFF3,pearson_threshold,edge)
+                                                max_corr4, current_shift4 = pearson_slider(row_ON4,row_OFF4,pearson_threshold,edge)
+                                                max_corr5, current_shift5 = pearson_slider(row_ON5,row_OFF5,pearson_threshold,edge)
+                                                # count how many had low pearson values
+                                                score = 0
+
+                                                for corr in [max_corr,max_corr2,max_corr3,max_corr4,max_corr5]:
+                                                    if corr < pearson_threshold:
+                                                        score +=1 
+
+                                                # also check signal numbers at boundaries
+                                                same_signal_2, num_signals_2 = check_same_signal_number(row_ON2,row_OFF2,significance_level)
+                                                # boundary 3/5
+                                                same_signal_3,num_signals_3 = check_same_signal_number(row_ON3,row_OFF3,significance_level)
+                                                # boundary 4/5
+                                                same_signal_4,num_signals_4 = check_same_signal_number(row_ON4,row_OFF4,significance_level)
+                                                # boundary 5/5
+                                                same_signal_5,num_signals_5 = check_same_signal_number(row_ON5,row_OFF5,significance_level)
+                                                # count how many had low pearson values
+                                                same_signals = [same_signal_2,same_signal_3,same_signal_4,same_signal_5]
+                                                num_signals = [num_signals_2,num_signals_3,num_signals_4,num_signals_5]
+                                                num_same_signals = 0
+
+
+                                                for num in range(0,4):
+                                                    # its not okay to have less signals (good signals might drift out of region), but it is okay to have = or > than initial
+                                                    if same_signals[num] == True and num_signals[num] >= initial_signal_number:
+                                                        num_same_signals +=1
+
+
+                                                print('score:',score)
+                                                print(f"max correlation was {max_corr}")
+                                                print(f"integrated correlation was {integrated_pearson_score}")
+                                                print('current shift:',current_shift)
+
+                                                # only return ones with low correlation on all boundaries.
+                                                if num_same_signals == 0:
+                                                    low_correlations.append(i)
+                                                    scores.append(k_score)
         
         except Exception:
             print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
             print(f"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX ERROR ON BLOCK # {i} XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
             print(traceback.print_exc())
+            failures.append(i)
             print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 
     
 
-    return low_correlations, scores, passers
+    return low_correlations, scores, failures
 
 
 def check_broadband(obs1):
@@ -1028,11 +1067,12 @@ def main_boundary_checker(h5_files,pearson_threshold,block_size,significance_lev
 
 
     # find regions of low correlation
-    low_correlations,scores,passers = check_hotspots(hf_ON,hf_OFF,hf_ON2,hf_OFF2,hf_ON3,hf_OFF3,filtered_hotspots,pearson_threshold,significance_level,edge,block_size,filtered_hotspots_slice_indexes)
+    low_correlations,scores,failures = check_hotspots(hf_ON,hf_OFF,hf_ON2,hf_OFF2,hf_ON3,hf_OFF3,filtered_hotspots,pearson_threshold,significance_level,edge,block_size,filtered_hotspots_slice_indexes)
     print(f"Found {len(low_correlations)} regions of low correlation")
 
     # save regions to csv file, in current directory
-
+    failure_frequencies = [fch1+foff*(i*500) for i in failures]
     # return frequency positions of candidates
-    return [fch1+foff*(i*500) for i in low_correlations],scores
+
+    return [fch1+foff*(i*500) for i in low_correlations],scores,failure_frequencies
 
