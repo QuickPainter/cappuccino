@@ -14,10 +14,11 @@ from datetime import datetime
 import h5py
 from scipy.stats import pearsonr 
 import scipy.stats  
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import traceback
 import hdf5plugin
 import argparse
+import pickle
 
 
 def main():
@@ -39,7 +40,8 @@ def main():
     parser.add_argument('-p', '--pearson_threshold',dest='pearson_threshold', help="pearson threshold",default=.3,action="store")
     parser.add_argument('-s', '--significance_level',dest='significance_level', help="mimimum SNR for a signal",default=10,action="store")
     parser.add_argument('-e', '--edge',dest='edge', help="maximum drift rate in units of frequency bin (~2.79 Hz)",default=50,action="store")
-    parser.add_argument('-f', '--files',dest='fiels', help="directory of text file with files list",default=None,action="store")
+    parser.add_argument('-f', '--files',dest='files', help="directory of text file with files list",default='',action="store")
+    parser.add_argument('-n', '--number',dest='number', help="batch number from file list",default=0,action="store")
 
     args = vars(parser.parse_args())
 
@@ -53,11 +55,13 @@ def main():
     # --> If we assume a max drift rate of 4 Hz/s, this corresponds to 120Hz, which is ~43 frequency bins
     edge = int(args["edge"])
 
+    files = args["files"]
+    batch_number = int(args["number"])
 
 
     # check if candidates database is set up, if not then initialize it. This is where the candidates will be stored
     main_dir = os.getcwd() + "/"
-    df_name = f're_candidate_events_sigma_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
+    df_name = f'final_tests_candidate_events_sigma_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
     failures_name = f'failed_events_sigma_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
 
     # initialize candidates db
@@ -80,52 +84,106 @@ def main():
 
 
     # define the target list you want to search through. These should be folders in the current directory, with .h5 files of entire cadences in each of them
-    target_list = ['AND_II','AND_I', 'AND_X', 'AND_XI', 'AND_XIV', 'AND_XVI', 'AND_XXIII', 'AND_XXIV', 'BOL520', 'CVNI', 'DDO210', 'DRACO', 'DW1','HERCULES', 'HIZSS003', 'IC0010', 'IC0342', 'IC1613', 'LEOA', 'LEOII', 'LEOT', 'LGS3', 'MAFFEI1', 'MAFFEI2', 'MESSIER031', 'MESSIER033', 'MESSIER081', 'MESSIER101', 'MESSIER49', 'MESSIER59', 'MESSIER84', 'MESSIER86', 'MESSIER87', 'NGC0185', 'NGC0628', 'NGC0672 ', 'NGC1052', 'NGC1172 ', 'NGC1400', 'NGC1407', 'NGC2403','NGC2683', 'NGC2787', 'NGC3193', 'NGC3226', 'NGC3344', 'NGC3379', 'NGC4136', 'NGC4168', 'NGC4239', 'NGC4244', 'NGC4258', 'NGC4318', 'NGC4365', 'NGC4387', 'NGC4434', 'NGC4458', 'NGC4473', 'NGC4478', 'NGC4486B', 'NGC4489', 'NGC4551', 'NGC4559', 'NGC4564', 'NGC4600', 'NGC4618', 'NGC4660', 'NGC4736', 'NGC4826', 'NGC5194', 'NGC5195', 'NGC5322', 'NGC5638', 'NGC5813', 'NGC5831', 'NGC584', 'NGC5845', 'NGC5846', 'NGC596', 'NGC636', 'NGC6503', 'NGC6822', 'NGC6946', 'NGC720', 'NGC7454 ', 'NGC7640', 'NGC821', 'PEGASUS', 'SAG_DIR', 'SEXA', 'SEXB', 'SEXDSPH', 'UGC04879', 'UGCA127', 'UMIN']
-    # target_list = ['DDO210']
+    # target_list = ['AND_II','AND_I', 'AND_X', 'AND_XI', 'AND_XIV', 'AND_XVI', 'AND_XXIII', 'AND_XXIV', 'BOL520', 'CVNI', 'DDO210', 'DRACO', 'DW1','HERCULES', 'HIZSS003', 'IC0010', 'IC0342', 'IC1613', 'LEOA', 'LEOII', 'LEOT', 'LGS3', 'MAFFEI1', 'MAFFEI2', 'MESSIER031', 'MESSIER033', 'MESSIER081', 'MESSIER101', 'MESSIER49', 'MESSIER59', 'MESSIER84', 'MESSIER86', 'MESSIER87', 'NGC0185', 'NGC0628', 'NGC0672 ', 'NGC1052', 'NGC1172 ', 'NGC1400', 'NGC1407', 'NGC2403','NGC2683', 'NGC2787', 'NGC3193', 'NGC3226', 'NGC3344', 'NGC3379', 'NGC4136', 'NGC4168', 'NGC4239', 'NGC4244', 'NGC4258', 'NGC4318', 'NGC4365', 'NGC4387', 'NGC4434', 'NGC4458', 'NGC4473', 'NGC4478', 'NGC4486B', 'NGC4489', 'NGC4551', 'NGC4559', 'NGC4564', 'NGC4600', 'NGC4618', 'NGC4660', 'NGC4736', 'NGC4826', 'NGC5194', 'NGC5195', 'NGC5322', 'NGC5638', 'NGC5813', 'NGC5831', 'NGC584', 'NGC5845', 'NGC5846', 'NGC596', 'NGC636', 'NGC6503', 'NGC6822', 'NGC6946', 'NGC720', 'NGC7454 ', 'NGC7640', 'NGC821', 'PEGASUS', 'SAG_DIR', 'SEXA', 'SEXB', 'SEXDSPH', 'UGC04879', 'UGCA127', 'UMIN']
+    target_list = ['MESSIER49']
     candidates = pd.read_csv(main_dir+df_name)
     failures_db = pd.read_csv(main_dir+failures_name)
     # iterate through each target, grabbing the correct files. Files get grouped in cadences by node number and put in a list. 
-    for target in target_list:        
-        print("Running boundary checker for target:",target)
-        unique_h5_files,unique_nodes = get_all_h5_files(target)
-        # print total number of files in target folder
-        count = sum( [ len(listElem) for listElem in unique_h5_files])
-        print(f"{count} files")
-        # change back into main directory
-        os.chdir(main_dir)
+
+
+
+
+    # if we do not pass in a list of files, just iterate over the files in galaxy directory
+    if files == '':
+
+        for target in target_list:        
+            print("Running boundary checker for target:",target)
+            unique_h5_files,unique_nodes = get_all_h5_files(target)
+            # print total number of files in target folder
+            count = sum( [ len(listElem) for listElem in unique_h5_files])
+            print(f"{count} files")
+            # change back into main directory
+            os.chdir(main_dir)
+
+            try:
+                # iterate through each node (cadence)
+                for i in range(0,len(unique_h5_files)):
+                    # for the moment skip spliced files due to their size
+                    if unique_nodes[i] != "splic":
+                        # grab the specific cadence to look at
+                        h5_files = unique_h5_files[i]
+                        # pass the files into the boundary_checker wrapper function. Returns flagged frequencies and respective scores
+                        print("Now running on file ",h5_files[0])
+                        low_correlation_frequencies,scores,failure_frequencies= main_boundary_checker(h5_files,pearson_threshold,block_size,significance_level,edge)
+
+                        # append all flagged frequencies to the candidates database
+                        for i in range(0,len(low_correlation_frequencies)):
+                            freq = low_correlation_frequencies[i]
+                            score = scores[i]
+                            candidates.loc[len(candidates.index)] = [h5_files[0],freq,h5_files,score]
+                            
+                        for i in range(0,len(failure_frequencies)):
+                            failure_freq = failure_frequencies[i]
+                            failures_db.loc[len(failures_db.index)] = [failure_freq,h5_files]
+
+                        print(candidates)
+                        
+                        # update candidates database
+                        candidates.to_csv(main_dir+df_name,index=False)
+                        failures_db.to_csv(main_dir+failures_name,index=False)
+
+                    else: 
+                        print("skipping spliced files")
+            except Exception:
+                print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
+                print(f"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX ERROR ON TARGET {target} XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
+                print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
+
+                # keep track of targets that straight up fail
+                failures_db.loc[len(failures_db.index)] = ["All",h5_files]
+                failures_db.to_csv(main_dir+failures_name,index=False)
+
+                print(traceback.print_exc())
+    
+    else:
+        print("running on input files, batch #",batch_number)
+        # load all files
+        with open('/datax/scratch/calebp/boundaries/cappuccino/all_batches_all_cadences.pkl', 'rb') as f:
+            reloaded_batches = pickle.load(f)
+        
+        # choose subset of all cadences (batches of 5000)
+        all_file_paths = reloaded_batches[batch_number]
+
+        all_file_paths = [find_cadence('HIP56802','57522','spliced',reloaded_batches)]
 
         try:
             # iterate through each node (cadence)
-            for i in range(0,len(unique_h5_files)):
-                # for the moment skip spliced files due to their size
-                if unique_nodes[i] != "splic":
-                    # grab the specific cadence to look at
-                    h5_files = unique_h5_files[i]
-                    # pass the files into the boundary_checker wrapper function. Returns flagged frequencies and respective scores
-                    print("Now running on file ",h5_files[0])
-                    low_correlation_frequencies,scores,failure_frequencies= main_boundary_checker(h5_files,pearson_threshold,block_size,significance_level,edge)
+            for i in range(0,len(all_file_paths)):
+                # grab the specific cadence to look at
+                h5_files = all_file_paths[i]
+                # pass the files into the boundary_checker wrapper function. Returns flagged frequencies and respective scores
+                print("Now running on file ",h5_files[0])
+                low_correlation_frequencies,scores,failure_frequencies= main_boundary_checker(h5_files,pearson_threshold,block_size,significance_level,edge)
 
-                    # append all flagged frequencies to the candidates database
-                    for i in range(0,len(low_correlation_frequencies)):
-                        freq = low_correlation_frequencies[i]
-                        score = scores[i]
-                        candidates.loc[len(candidates.index)] = [h5_files[0],freq,h5_files,score]
-                        
-                    for i in range(0,len(failure_frequencies)):
-                        failure_freq = failure_frequencies[i]
-                        failures_db.loc[len(failures_db.index)] = [failure_freq,h5_files]
-
-                    print(candidates)
+                # append all flagged frequencies to the candidates database
+                for i in range(0,len(low_correlation_frequencies)):
+                    freq = low_correlation_frequencies[i]
+                    score = scores[i]
+                    candidates.loc[len(candidates.index)] = [h5_files[0],freq,h5_files,score]
                     
-                    # update candidates database
-                    candidates.to_csv(main_dir+df_name,index=False)
-                    failures_db.to_csv(main_dir+failures_name,index=False)
+                for i in range(0,len(failure_frequencies)):
+                    failure_freq = failure_frequencies[i]
+                    failures_db.loc[len(failures_db.index)] = [failure_freq,h5_files]
 
-                else: 
-                    print("skipping spliced files")
+                print(candidates)
+                
+                # update candidates database
+                candidates.to_csv(main_dir+df_name,index=False)
+                failures_db.to_csv(main_dir+failures_name,index=False)
+
         except Exception:
             print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
-            print(f"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX ERROR ON TARGET {target} XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
+            print(f"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX ERROR ON batch {batch_number} XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
             print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 
             # keep track of targets that straight up fail
@@ -134,6 +192,8 @@ def main():
 
             print(traceback.print_exc())
 
+
+    
 
 def get_all_h5_files(target):
     """Returns a list containaing cadences grouped together as tuples, as well as a list of all unique nodes
@@ -164,6 +224,13 @@ def get_all_h5_files(target):
 
     return h5_list, unique_nodes
 
+
+def find_cadence(target,time,node,reloaded_batches):
+    for batch in range(0,21):
+        for cadence in reloaded_batches[batch]:
+            combined_string = " ".join(cadence)
+            if combined_string.count(target) >= 3 and time in combined_string and node in combined_string:
+                return cadence
 
 def get_unique_nodes(data_dir):
     """Grabs the unique blc nodes in a given directory
@@ -441,8 +508,7 @@ def filter_hotspots(hotspots,fch1,foff):
     """
 
     # define regions that are RFI heavy:
-    bad_regions = [[700,830],[1160,1340],[1370,1390],[1520,1630],[1675,1705],[1915,1935],[2025,2035],[2100,2120],[2180,2280],[2300,2360],[2820,2830],[2925,2940],[3800,4200],[4680,4800],[11000,11180]]
-
+    bad_regions = [[700,1100],[1160,1340],[1370,1390],[1520,1630],[1670,1705],[1915,2000],[2025,2035],[2100,2120],[2180,2280],[2300,2360],[2485,2500],[2800,4400],[4680,4800],[8150,8350],[10700,12000]]
     # first convert hotspots indexes to frequency channels
     hotspots_frequencies = np.array([int((fch1+foff*(i*500))) for i in hotspots])
 
@@ -499,7 +565,8 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
 
         
         try:
-
+            dt = datetime.now()
+            print('time start',dt.microsecond/1000)
             # load the observations for off and ON. Last time bin for first obs, first time bin for seond obs
             # find the correct obs based on the filter index
             observations_ON = [hf_obs1,hf_obs3,hf_obs5]
@@ -530,22 +597,37 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
 
             same_signal_number, initial_signal_number = check_same_signal_number(row_ON,row_OFF,significance_level)
 
+            dt = datetime.now()
+            print('time signal',dt.microsecond/1000)
+
+
             if same_signal_number==False:
+                print("checking correlation")
+
                 # if it passes these two initial checks, perform pearson correlation check
                 max_corr, current_shift = pearson_slider(row_ON,row_OFF,pearson_threshold,edge)
+                dt = datetime.now()
+                print('time corr',dt.microsecond/1000)
 
                 if max_corr < pearson_threshold:
                     # Now check if it is broadband RFI:
                     primary_obs = np.squeeze(primary_hf_ON['data'][:,:,lower:upper],axis=1)
                     is_broadband = check_broadband(primary_obs)
+                    is_blip = check_blip(primary_obs)
 
                     #sum primary_obs
                     primary_time_integrated = primary_obs.sum(axis=0,dtype='float')
 
                     # we can also check the last ON row with the entire ON observation summed
-                    not_drifting = drift_index_checker(primary_time_integrated, row_ON,significance_level)
+                    not_drifting = drift_index_checker(primary_obs[0], row_ON,significance_level,3)
                     print("not drifting",not_drifting)
-                    if is_broadband == False and not_drifting == False:
+                    print("is broadband",is_broadband)
+                    print("is_blip",is_blip)
+
+                    dt = datetime.now()
+                    print('time drift',dt.microsecond/1000)
+
+                    if is_broadband == False and not_drifting == False and is_blip == False:
                         # load entire observation and see if time-summing the signal produces different result --> signal might be weak
                         secondary_obs = np.squeeze(primary_hf_OFF['data'][:,:,lower-edge:upper+edge],axis=1)
                         secondary_time_integrated = secondary_obs.sum(axis=0,dtype='float')
@@ -621,7 +703,7 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
 
                                         boundaries_summed = obs1_row1+obs2_row1+obs2_row16+obs3_row1+obs3_row16
                                         boundaries_summed = boundaries_summed/np.max(boundaries_summed)
-                                        boundary_drift = drift_index_checker(boundaries_summed, row_ON,significance_level)
+                                        boundary_drift = drift_index_checker(boundaries_summed, row_ON,significance_level,10)
 
                     
                         
@@ -657,7 +739,7 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
                                             whole_sum = whole_sum/np.max(whole_sum)
                                             row_ON = row_ON/np.max(row_ON)
 
-                                            zero_drift = drift_index_checker(whole_sum, row_ON,significance_level)
+                                            zero_drift = drift_index_checker(whole_sum, row_ON,significance_level,10)
                                             
 
                                             # calculate k-score
@@ -922,7 +1004,25 @@ def second_filter(obs1_time_integrated,obs2_time_integrated,pearson_threshold,ed
 
     return still_good, integrated_pearson_score
 
-def drift_index_checker(whole_sum, row_ON,significance_level):
+def check_blip(obs1):
+    # for moment we can just check rows above:
+    
+    blip_threshold = 6
+
+    not_constant_signal = False
+    snrs = []
+    # make sure there is a signal and not just blips
+    for i in [0,8]:
+        int_snr,threshold2 = get_snr(obs1[i],blip_threshold)
+        snrs.append(int_snr)
+
+    if snrs[0] == False and snrs[1] == False:
+        not_constant_signal = True
+
+    return not_constant_signal
+
+
+def drift_index_checker(whole_sum, row_ON,significance_level,min_distance):
     """Checks if drift rate == 0. Compares all signals that set off hotspot to those in the full observation summed
 
     Args:
@@ -973,7 +1073,7 @@ def drift_index_checker(whole_sum, row_ON,significance_level):
         all = 0
         for i in filtered_hotspot_indices:
             for j in filtered_summed_indices:
-                if abs(i-j) < 10:
+                if abs(i-j) < min_distance:
                     all +=1 
         if all >= len(filtered_hotspot_indices):
             zero_drift = True
