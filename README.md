@@ -28,7 +28,7 @@ Using this type of observing cadence, we're able to eliminate RFI by checking if
 The primary algorithm used by the Breakthrough Listen group to find signals at the moment is [**turboSETI**](https://github.com/UCBerkeleySETI/turbo_seti), which is a fast, effective approach to finding narrowband, doppler drifting signals. However, the pipeline in its current format still faces two primary issues:
 1. It misses promising signals that should be flagged.
    - This can be seen in Peter Ma's paper, where he uses an ML approach to find signals. Some examples of these signals are:
-    ![alt text](https://images.breakthroughinitiatives.org/30f8382ef8aae311167b4362922c2d1b.jpg)
+    ![alt text](/notebooks/images/Peter_signal.png)
 3. It returns candidate events that are clearly RFI, and should not have passed the filters.
 
 
