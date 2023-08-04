@@ -25,6 +25,8 @@ To address the first problem, the basic observing strategy is structured in the 
 
 Using this type of observing cadence, we're able to eliminate RFI by checking if signals appear in both the ON (primary star) and OFF (secondary stars) observations. Genuine signals would only appear in the ONs. 
 
+![alt text](/notebooks/images/good_bad.png)
+
 The primary algorithm used by the Breakthrough Listen group to find signals at the moment is [**turboSETI**](https://github.com/UCBerkeleySETI/turbo_seti), which is a fast, effective approach to finding narrowband, doppler drifting signals. However, the pipeline in its current format still faces two primary issues:
 1. It misses promising signals that should be flagged.
    - This can be seen in Peter Ma's paper, where he uses an ML approach to find signals. One such example from HIP13402 is:
