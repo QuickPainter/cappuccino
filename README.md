@@ -9,7 +9,7 @@ Caleb Painter
 
 ## Background
 
-This directory contains a Python-based pipeline for processing and analyzing large amounts of GBT data to search for radio technosignatures. For a more detailed overview of the search for radio technosignatures, please see the [@UCBerkeleySETI] page, [here](https://github.com/UCBerkeleySETI/breakthrough/tree/master/GBT).  
+This directory contains a Python-based pipeline for processing and analyzing large amounts of GBT data to search for radio technosignatures. For a more detailed overview of the search for radio technosignatures, please see the [@UCBerkeleySETI](https://github.com/UCBerkeleySETI) page, [here](https://github.com/UCBerkeleySETI/breakthrough/tree/master/GBT).  
 
 As noted in the introductory materials, the basics of searching for signatures of extraterrestrial technology are actually quite simple, but the confounding factors are:
 
