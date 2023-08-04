@@ -23,7 +23,7 @@ To address the first problem, the basic observing strategy is structured in the 
 * Another 5 minutes on star A
 * 5 minutes on another secondary target ("star D")
 
-Using this type of observing cadence, we're able to eliminate RFI by checking if signals appear in both the ON (primary star) and OFF (secondary stars) observations. Genuine signals would only appear in the ONs. 
+Using this type of observing cadence, we're able to eliminate RFI by checking if signals appear in both the ON (primary star) and OFF (secondary stars) observations. Genuine signals would only appear in the ONs. In the plots below, RFI can be seen in the left (as it is present in every observation), whereas a strong candidate can be seen on the right (as it is only present in the ON observation).
 
 ![alt text](/notebooks/images/good_bad.png)
 
