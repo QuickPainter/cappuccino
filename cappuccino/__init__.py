@@ -36,7 +36,7 @@ def main():
                     epilog="Documentation: https://bsrc-cappuccino.readthedocs.io/en/latest/")
 
     
-    parser.add_argument('-b', '--block_size',dest='block_size', help="block size",default=500,action="store")
+    parser.add_argument('-b', '--block_size',dest='block_size', help="block size",default=4096,action="store")
     parser.add_argument('-p', '--pearson_threshold',dest='pearson_threshold', help="pearson threshold",default=.3,action="store")
     parser.add_argument('-s', '--significance_level',dest='significance_level', help="mimimum SNR for a signal",default=10,action="store")
     parser.add_argument('-e', '--edge',dest='edge', help="maximum drift rate in units of frequency bin (~2.79 Hz)",default=50,action="store")
@@ -58,11 +58,20 @@ def main():
     files = args["files"]
     batch_number = int(args["number"])
 
-
+    print("block_size:",block_size)
     # check if candidates database is set up, if not then initialize it. This is where the candidates will be stored
-    main_dir = os.getcwd() + "/"
-    df_name = f'final_tests_candidate_events_sigma_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
-    failures_name = f'failed_events_sigma_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
+    # main_dir = os.getcwd() + "/"
+
+    main_dir = '/mnt_blpc1/datax/scratch/calebp/cappuccino_runs/'
+
+
+    if files == '':
+        df_name = f'candidate_events_sigma_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
+        failures_name = f'failed_events_sigma_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
+    else:
+        df_name = f'all_batches_number_{batch_number}_sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
+        failures_name = f'failed_batches_number_{batch_number}_sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
+
 
     # initialize candidates db
     db_exists = os.path.exists(main_dir+df_name)
@@ -148,17 +157,18 @@ def main():
     else:
         print("running on input files, batch #",batch_number)
         # load all files
-        with open('/datax/scratch/calebp/boundaries/cappuccino/all_batches_all_cadences.pkl', 'rb') as f:
+        with open('/mnt_blpc1/datax/scratch/calebp/boundaries/cappuccino/all_batches_all_cadences.pkl', 'rb') as f:
             reloaded_batches = pickle.load(f)
         
         # choose subset of all cadences (batches of 5000)
-        all_file_paths = reloaded_batches[batch_number]
+        all_file_paths = reloaded_batches[batch_number] 
 
-        all_file_paths = [find_cadence('HIP56802','57522','spliced',reloaded_batches)]
+        # all_file_paths = [find_cadence('HIP56802','57522','spliced',reloaded_batches)]
 
         try:
             # iterate through each node (cadence)
             for i in range(0,len(all_file_paths)):
+                print(f'Cadence {i} out of {len(all_file_paths)}:')
                 # grab the specific cadence to look at
                 h5_files = all_file_paths[i]
                 # pass the files into the boundary_checker wrapper function. Returns flagged frequencies and respective scores
@@ -495,7 +505,7 @@ def get_correct_index(freq,fch1,foff):
     bound = 250
     return number+bound, number-bound
 
-def filter_hotspots(hotspots,fch1,foff):
+def filter_hotspots(hotspots,fch1,foff,block_size):
     """Filters out hotspots in RFI heavy regions. 
 
     Args:
@@ -510,7 +520,7 @@ def filter_hotspots(hotspots,fch1,foff):
     # define regions that are RFI heavy:
     bad_regions = [[700,1100],[1160,1340],[1370,1390],[1520,1630],[1670,1705],[1915,2000],[2025,2035],[2100,2120],[2180,2280],[2300,2360],[2485,2500],[2800,4400],[4680,4800],[8150,8350],[10700,12000]]
     # first convert hotspots indexes to frequency channels
-    hotspots_frequencies = np.array([int((fch1+foff*(i*500))) for i in hotspots])
+    hotspots_frequencies = np.array([int((fch1+foff*(i*block_size))) for i in hotspots])
 
 
     all_indexes = []
@@ -528,7 +538,7 @@ def filter_hotspots(hotspots,fch1,foff):
     return all_indexes
 
 
-def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hotspots,pearson_threshold,significance_level,edge,block_size,filtered_hotspots_indexes):
+def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hotspots,pearson_threshold,significance_level,edge,block_size,filtered_hotspots_indexes):
     """This is the primary filter wrapper, which contains the layers of filters that each cadence must pass through in order to be flagged.
 
     \b
@@ -543,7 +553,7 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
         pearson_threshold (int): Correlation threshold for a signal to be considered significant   
         significance_level (int): Minium SNR for a signal to be considered a "signal"
         edge (int): Max range of sliding for pearson correlation. Akin to max drift rate
-        block_size (int): Size of hotspot region
+        block_size (int): Size of hotspot regionl
     
     \b
     Returns:
@@ -576,6 +586,7 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
             hotspot_slice = filtered_hotspots_indexes[hotspot_index]
 
             hotspot_slices = [0,1,2]
+            print(hotspot_slice)
 
             primary_hf_ON = observations_ON[hotspot_slice]
             primary_hf_OFF = observations_OFF[hotspot_slice]
@@ -588,7 +599,14 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
             hf_ON_3 = observations_ON[hotspot_slices[1]]
             hf_OFF_3 = observations_OFF[hotspot_slices[1]]
 
-            row_ON, row_OFF = get_boundary_data(primary_hf_ON,primary_hf_OFF,lower,upper,edge)           
+            if hotspot_slice == 0:
+                row_ON = hotspot_slice_data[hotspot_slice][lower:upper]
+                row_OFF = first_off[lower-edge:upper+edge]
+            else:
+                row_OFF = np.squeeze(primary_hf_OFF['data'][:1,:,lower-edge:upper+edge],axis=1)[0]
+                row_ON = np.squeeze(primary_hf_ON['data'][:1,:,lower:upper],axis=1)[0]
+
+            # row_ON, row_OFF = get_boundary_data(primary_hf_ON,primary_hf_OFF,lower,upper,edge)           
             # first just check if there are same number of signals in the first ON and OFF. If there aren't pass it on.
 
             # normalize the data
@@ -764,7 +782,7 @@ def check_hotspots(hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hots
 
 
                                             # if it passes both drift rate and the check that the signal stays strong, we do a last check of the pearson correlation at all boundaries.
-                                            if zero_drift == False and k_score > 5: 
+                                            if zero_drift == False: 
                                                 # check other boundaries
                                                 # first load boundary data
                                                 # boundary 2/5
@@ -871,12 +889,12 @@ def check_same_signal_number(row_ON,row_OFF,significance_level):
     snr1, threshold1 = get_snr(row_ON,significance_level)
     snr6, threshold6 = get_snr(row_OFF,significance_level-2)
 
-    plt.plot(row_ON)
-    plt.axhline(y=threshold1)
-    plt.show()
-    plt.plot(row_OFF)
-    plt.axhline(y=threshold6)
-    plt.show()
+    # plt.plot(row_ON)
+    # plt.axhline(y=threshold1)
+    # plt.show()
+    # plt.plot(row_OFF)
+    # plt.axhline(y=threshold6)
+    # plt.show()
 
 
     indicesON = np.where(np.array(row_ON) > threshold1)[0].tolist()
@@ -1115,6 +1133,8 @@ def main_boundary_checker(h5_files,pearson_threshold,block_size,significance_lev
 
     obs5_row_8 = np.squeeze(hf_ON3['data'][15:16,:,:])
 
+    primary_off = np.squeeze(hf_OFF['data'][0:1,:,:])
+
     last_time_row_ON = obs1_row_16
 
 
@@ -1140,7 +1160,7 @@ def main_boundary_checker(h5_files,pearson_threshold,block_size,significance_lev
     warmspots = [*set(all_warmspots)]
 
     # next filter out warmspots that fall in bad regions
-    filtered_indexes = filter_hotspots(warmspots,fch1,foff)
+    filtered_indexes = filter_hotspots(warmspots,fch1,foff,block_size)
     filtered_warmspots = np.delete(warmspots, filtered_indexes)
     print("# warmspots post filtering",len(filtered_warmspots))
 
@@ -1164,15 +1184,19 @@ def main_boundary_checker(h5_files,pearson_threshold,block_size,significance_lev
                 filtered_hotspots_slice_indexes.append(i)
                 break
 
+    # delete variables to clear up memory
+    del hotspot_slices
+    del obs5_row_8
+    del obs3_row_8
 
 
     # find regions of low correlation
-    low_correlations,scores,failures = check_hotspots(hf_ON,hf_OFF,hf_ON2,hf_OFF2,hf_ON3,hf_OFF3,filtered_hotspots,pearson_threshold,significance_level,edge,block_size,filtered_hotspots_slice_indexes)
+    low_correlations,scores,failures = check_hotspots([last_time_row_ON],primary_off,hf_ON,hf_OFF,hf_ON2,hf_OFF2,hf_ON3,hf_OFF3,filtered_hotspots,pearson_threshold,significance_level,edge,block_size,filtered_hotspots_slice_indexes)
     print(f"Found {len(low_correlations)} regions of low correlation")
 
     # save regions to csv file, in current directory
-    failure_frequencies = [fch1+foff*(i*500) for i in failures]
+    failure_frequencies = [fch1+foff*(i*block_size) for i in failures]
     # return frequency positions of candidates
 
-    return [fch1+foff*(i*500) for i in low_correlations],scores,failure_frequencies
+    return [fch1+foff*(i*block_size) for i in low_correlations],scores,failure_frequencies
 
