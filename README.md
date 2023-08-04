@@ -11,14 +11,21 @@ Caleb Painter
 
 This directory contains a Python-based pipeline for processing and analyzing large amounts of GBT data to search for radio technosignatures. For a more detailed overview of the search for radio technosignatures, please see the [@UCBerkeleySETI](https://github.com/UCBerkeleySETI) page, [here](https://github.com/UCBerkeleySETI/breakthrough/tree/master/GBT).  
 
-As noted in the introductory materials, the basics of searching for signatures of extraterrestrial technology are actually quite simple, but the confounding factors are:
+To summarize, the current state of technosignaturs searches using Green Bank data faces two problems:
+1. Human technology produces Radio Frequency Interference (RFI) that we must distinguish from genuine signals.
+2. The volume of data being worked with is very large.
 
-Human technology gives off signals like the ones we are looking for (radio frequency interference)
-Data volumes are too large to run brute force analysis on the whole dataset
-Here's how we deal with these problems:
+To address the first problem, the basic observing strategy is structured in the following pattern:
+* Observe a target ("star A") from the primary target list for 5 minutes
+* Observe another target ("star B") at a nearby position on the sky for 5 minutes
+* Return to star A for 5 minutes
+* Observe another target ("star C") from our secondary list for 5 minutes
+* Another 5 minutes on star A
+* 5 minutes on another secondary target ("star D")
 
+Using this type of observing cadence, we're able to eliminate RFI by checking if signals appear in both the ON (primary star) and OFF (secondary stars) observations. Genuine signals would only appear in the ONs. 
 
-
+The primary algorithm used to find signals is [**turboSETI**](https://github.com/UCBerkeleySETI/turbo_seti), which is a fast, effective approach to finding narrowband, doppler drifting signals.  
 
 # Walkthrough
 
