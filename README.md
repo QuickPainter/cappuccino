@@ -35,6 +35,7 @@ The primary algorithm used by the Breakthrough Listen group to find signals at t
 
 **Cappuccino** takes a different approach than **turboSETI** in order to find strong candidate signals, to avoid running into these problems. The basis of the method is a cross-correlation based filter: it checks the correlation at the boundary between the ON and OFF observations. Strong candidates should have very low correlation at this boundary, as the signal should be present in the ON but not in the OFF. RFI would have very high correlation at the boundaries, as the signal should be continuous even as the telescope switches target.  
 
+There are several advantages of this method over **turboSETI**'s approach. Firstly, it is not biased toward any type of signal. It is successful at catching narrowband drifting signals, like the kind **turboSETI** searches for, but is not limited to these. The only requirements are that the signal is continuous in time, but does not need to have a linear drift. In fact, it can display any kind of behavior in the frequency domain. 
 
 # Walkthrough
 
