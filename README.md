@@ -11,7 +11,7 @@ Caleb Painter
 
 This directory contains a Python-based pipeline for processing and analyzing large amounts of GBT data to search for radio technosignatures. For a more detailed overview of the search for radio technosignatures, please see the [@UCBerkeleySETI](https://github.com/UCBerkeleySETI) page, [here](https://github.com/UCBerkeleySETI/breakthrough/tree/master/GBT).  
 
-To summarize, the current state of technosignaturs searches using Green Bank data faces two problems:
+To summarize, the current state of techno signatures searches using Green Bank data faces two problems:
 1. Human technology produces Radio Frequency Interference (RFI) that we must distinguish from genuine signals.
 2. The volume of data being worked with is very large.
 
@@ -31,7 +31,9 @@ The primary algorithm used by the Breakthrough Listen group to find signals at t
 1. It misses promising signals that should be flagged.
    - This can be seen in Peter Ma's paper, where he uses an ML approach to find signals. One such example from HIP13402 is:
     ![alt text](/notebooks/images/Peter_signal.png)
-3. It returns candidate events that are clearly RFI, and should not have passed the filters.
+2. It returns candidate events that are clearly RFI, and should not have passed the filters.
+
+**Cappuccino** takes a different approach than **turboSETI** in order to find strong candidate signals, to avoid running into these problems. The basis of the method is a cross-correlation based filter: it checks the correlation at the boundary between the ON and OFF observations. Strong candidates should have very low correlation at this boundary, as the signal should be present in the ON but not in the OFF. RFI would have very high correlation at the boundaries, as the signal should be continuous even as the telescope switches target.  
 
 
 # Walkthrough
