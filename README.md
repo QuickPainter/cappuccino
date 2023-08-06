@@ -39,10 +39,60 @@ There are several advantages of this method over **turboSETI**'s approach. First
 
 # Walkthrough
 
+-------------------
 ## Setup
 
 This code is meant to be run on data from Berkeley's Breakthrough Listen group, and is most easily run on the Breakthrough Listen computer clusters. It is possible to download the data files you want locally though, and run it on your machine. All that is needed is a basic python environment. 
 
+-------------------
+### Dependencies
+
+- Python 3.7+
+- numpy
+- pandas
+- hf5py
+- scipy
+- pickle
+- os
+- sys
+
+&nbsp;
+
+-------------------
+## Usage
+
+### Expected Input File Format
+
+Cappuccino is built to read in and analyze HDF5 files. Unlike **turboSETI**, **cappuccino** runs on the entire cadence at a time, not individual observations. In doing so, it takes direct advantage of the ON/OFF cadence described above. There are three options for inputting file formats:
+1. Giving the directory path containing the .h5 files.
+2. Giving the path to a text file which holds the .h5 file paths.
+3. Giving a batch number to be run on, in which case it will run on one of the 1000 batches that make up the archival GBT observation database.
+
+If these options are not sufficient, the code is well documented and users can edit it to pass in their own files.
+
+### Usage as a Command Line
+
+Run with data: `cappuccino <PATH_TO_TEXT_FILE_WITH_HDF5_FILES> [OPTIONS]`
+
+For an explanation of the program parameters: `cappuccino -h`
+
+To briefly summarize them:
+- `block size`: Cappuccino functions by dividing the .h5 files into promising frequency snippets, and analyzing those frequency snippets for candidate signals. Block size defines the size of that frequency snippet, with units of frequency bins. The default is 4096 (or around 11.5 kHz for a standard 2.8Hz bin size). 
+- `Pearson threshold`: The minimum Pearson correlation metric required for two time slices (typically the last one in the ON observation and first one in the OFF observation) to have a 'high' correlation, and be rejected as RFI. The default has been set to .3, after testing on different signal strengths and types.
+- `significance level`: In essence, the minimum SNR a signal must have to be flagged in the first place. The significance level defines the number of standard deviations above the baseline a signal must be. The baseline is calculated as the median of the lower 85% of values (to avoid having high values skew the baseline).The default is 10.
+- `edge`: The maximum number of frequency bins that two time slices will be displaced in frequency to account for drift rate as the telescope slews from one target to another. The default is 50, which represents 140Hz in the standard frequency binning. It must be remembered that this does not represent an upper limit on the range of drift rates candidates can exhibit -- it is a lower limit on how much drift an RFI source can have without being caught. Setting a lower number will give more false positives, and a higher number will give less but at the cost of computation time.
+- `files`: Described above, the directory path containing the .h5 files.
+- `directory`: Described above, the path to a text file which holds the .h5 file paths.
+- `number`: Described above, the specific batch of GBT data.
+
+
+### Usage as a Python Package
+
+```
+from turbo_seti.find_doppler.find_doppler import FindDoppler
+fdop = FindDoppler(datafile=my_HDF5_file, ...)
+fdop.search(...)
+```
 
 
 
