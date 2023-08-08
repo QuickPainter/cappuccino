@@ -39,7 +39,7 @@ def main():
 
     
     parser.add_argument('-b', '--block_size',dest='block_size', help="block size",default=4096,action="store")
-    parser.add_argument('-p', '--pearson_threshold',dest='pearson_threshold', help="pearson threshold",default=.3,action="store")
+    parser.add_argument('-p', '--pearson_threshold',dest='pearson_threshold', help="pearson threshold",default=.5,action="store")
     parser.add_argument('-s', '--significance_level',dest='significance_level', help="mimimum SNR for a signal",default=10,action="store")
     parser.add_argument('-e', '--edge',dest='edge', help="maximum drift rate in units of frequency bin (~2.79 Hz)",default=50,action="store")
     parser.add_argument('-f', '--files',dest='files', help="path to text file with files list",default='',action="store")
@@ -572,7 +572,7 @@ def filter_hotspots(hotspots,fch1,foff,block_size):
     return all_indexes
 
 
-def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hotspots,pearson_threshold,significance_level,edge,block_size,filtered_hotspots_indexes):
+def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,hf_obs5,hf_obs6,filtered_hotspots,pearson_threshold,significance_level,edge,block_size,filtered_hotspots_indexes,all_filtered_hotspots):
     """This is the primary filter wrapper, which contains the layers of filters that each cadence must pass through in order to be flagged.
 
     \b
@@ -617,7 +617,7 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
             observations_ON = [hf_obs1,hf_obs3,hf_obs5]
             observations_OFF = [hf_obs2,hf_obs4,hf_obs6]
             
-            hotspot_index = filtered_hotspots.index(i)
+            hotspot_index = all_filtered_hotspots.index(i)
             hotspot_slice = filtered_hotspots_indexes[hotspot_index]
 
             hotspot_slices = [0,1,2]
@@ -639,7 +639,7 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
                 row_OFF = first_off[lower-edge:upper+edge]
             else:
                 row_OFF = np.squeeze(primary_hf_OFF['data'][:1,:,lower-edge:upper+edge],axis=1)[0]
-                row_ON = np.squeeze(primary_hf_ON['data'][:1,:,lower:upper],axis=1)[0]
+                row_ON = np.squeeze(primary_hf_ON['data'][-1:,:,lower:upper],axis=1)[0]
 
             # row_ON, row_OFF = get_boundary_data(primary_hf_ON,primary_hf_OFF,lower,upper,edge)           
             # first just check if there are same number of signals in the first ON and OFF. If there aren't pass it on.
@@ -688,7 +688,7 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
                         # first check same signal number:
                         check_same_signal_number_integrated, integrated_signal_number = check_same_signal_number(primary_time_integrated,secondary_time_integrated,significance_level)
 
-                        print('same_signal',check_same_signal_number_integrated)
+                        print('same_signal integrated',check_same_signal_number_integrated)
 
                         if check_same_signal_number_integrated == False:
 
@@ -957,9 +957,13 @@ def check_same_signal_number(row_ON,row_OFF,significance_level):
     indicesOFF = np.where(np.array(row_OFF) > threshold6)[0].tolist()
 
 
-
+    indicesON = peaks_ON
+    indicesOFF = peaks_OFF
     filtered_indicesON = indicesON
     filtered_indicesOFF = indicesOFF
+
+
+    
     if len(indicesON) != 0:
         # first need to filter the signal somewhat in case it is spread out
 
@@ -1124,6 +1128,9 @@ def drift_index_checker(whole_sum, row_ON,significance_level,min_distance):
     summed_indices = np.where(np.array(whole_sum) > summed_threshold)[0].tolist()
 
     # average any points very close together
+    print(hotspot_indices,summed_indices)
+
+
     if len(hotspot_indices) != 0 and len(summed_indices) != 0:
 
         filtered_hotspot_indices = [hotspot_indices[0]]
@@ -1151,6 +1158,7 @@ def drift_index_checker(whole_sum, row_ON,significance_level,min_distance):
                     all +=1 
         if all >= len(filtered_hotspot_indices):
             zero_drift = True
+        print(filtered_hotspot_indices,filtered_summed_indices)
 
     return zero_drift
 
@@ -1246,10 +1254,8 @@ def main_boundary_checker(h5_files,pearson_threshold,block_size,significance_lev
     del obs3_row_8
     gc.collect()
 
-
-
     # find regions of low correlation
-    low_correlations,scores,ranges,failures = check_hotspots([last_time_row_ON],primary_off,hf_ON,hf_OFF,hf_ON2,hf_OFF2,hf_ON3,hf_OFF3,filtered_hotspots,pearson_threshold,significance_level,edge,block_size,filtered_hotspots_slice_indexes)
+    low_correlations,scores,ranges,failures = check_hotspots([last_time_row_ON],primary_off,hf_ON,hf_OFF,hf_ON2,hf_OFF2,hf_ON3,hf_OFF3,filtered_hotspots,pearson_threshold,significance_level,edge,block_size,filtered_hotspots_slice_indexes,filtered_hotspots)
     print(f"Found {len(low_correlations)} regions of low correlation")
 
     # save regions to csv file, in current directory
