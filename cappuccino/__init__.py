@@ -38,8 +38,8 @@ def main():
                     epilog="Documentation: https://bsrc-cappuccino.readthedocs.io/en/latest/")
 
     
-    parser.add_argument('-b', '--block_size',dest='block_size', help="block size",default=4096,action="store")
-    parser.add_argument('-p', '--pearson_threshold',dest='pearson_threshold', help="pearson threshold",default=.5,action="store")
+    parser.add_argument('-b', '--block_size',dest='block_size', help="block size",default=2048,action="store")
+    parser.add_argument('-p', '--pearson_threshold',dest='pearson_threshold', help="pearson threshold",default=.7,action="store")
     parser.add_argument('-s', '--significance_level',dest='significance_level', help="mimimum SNR for a signal",default=10,action="store")
     parser.add_argument('-e', '--edge',dest='edge', help="maximum drift rate in units of frequency bin (~2.79 Hz)",default=50,action="store")
     parser.add_argument('-f', '--files',dest='files', help="path to text file with files list",default='',action="store")
@@ -75,7 +75,7 @@ def main():
     main_dir = '/mnt_blpc1/datax/scratch/calebp/cappuccino_runs/'
 
 
-    if files == '' and target_line == '' and directory == '':
+    if files == '' and target_line == '' and directory == '' and batch_number == '':
         df_name = f'default_candidate_events_sigma_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
         failures_name = f'failed_default_candidate_events_sigma_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
     elif target_line != '':
@@ -122,7 +122,7 @@ def main():
 
 
     # if we pass in a directory of files it just iterates over the files in galaxy directory
-    if files == '' and target_line == '' and directory == '':
+    if files == '' and target_line == '' and directory == '' and batch_number == '':
 
         for target in target_list:        
             print("Running boundary checker for target:",target)
@@ -152,7 +152,7 @@ def main():
                             score = scores[i]
                             primary_file = h5_files[0]
                             name = primary_file.split('/')[-1]
-                            target = name.split("_")[5]
+                            target = name.split("_")[-2]
 
                             candidates.loc[len(candidates.index)] = [target,freq,block_index,h5_files,score,max_ranges,fch1,foff]
                             
@@ -196,9 +196,23 @@ def main():
         try:
             # iterate through each node (cadence)
             for i in range(0,len(all_file_paths)):
+                h5_files = all_file_paths[i]
+
+                primary_file = h5_files[0]
+                name = primary_file.split('/')[-1]
+                target = name.split("_")[-2]
+
+                if target == "OFF":
+                    temp = h5_files[0]
+                    h5_files = h5_files[1:]
+                    h5_files.append(temp)
+                    primary_file = h5_files[0]
+                    name = primary_file.split('/')[-1]
+                    target = name.split("_")[-2]
+
+
                 print(f'Cadence {i} out of {len(all_file_paths)}:')
                 # grab the specific cadence to look at
-                h5_files = all_file_paths[i]
                 # pass the files into the boundary_checker wrapper function. Returns flagged frequencies and respective scores
                 print("Now running on file ",h5_files[0])
                 low_correlation_frequencies,low_correlation_indexes,scores,ranges,failure_frequencies,fch1,foff= main_boundary_checker(h5_files,pearson_threshold,block_size,significance_level,edge)
@@ -209,10 +223,7 @@ def main():
                     block_index = low_correlation_indexes[i]
                     max_ranges = ranges[i]
                     score = scores[i]
-                    primary_file = h5_files[0]
-                    name = primary_file.split('/')[-1]
-                    target = name.split("_")[5]
-
+                    
                     candidates.loc[len(candidates.index)] = [target,freq,block_index,h5_files,score,max_ranges,fch1,foff]
                     
                 for i in range(0,len(failure_frequencies)):
@@ -648,7 +659,7 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
             row_ON = row_ON/np.max(row_ON)
             row_OFF = row_OFF/np.max(row_OFF)
 
-            same_signal_number, initial_signal_number = check_same_signal_number(row_ON,row_OFF,significance_level)
+            same_signal_number, initial_signal_number = check_same_signal_number(row_ON,row_OFF,significance_level,"ON")
 
             dt = datetime.now()
             print('time signal',dt.microsecond/1000)
@@ -686,7 +697,7 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
                         secondary_time_integrated = secondary_obs.sum(axis=0,dtype='float')
 
                         # first check same signal number:
-                        check_same_signal_number_integrated, integrated_signal_number = check_same_signal_number(primary_time_integrated,secondary_time_integrated,significance_level)
+                        check_same_signal_number_integrated, integrated_signal_number = check_same_signal_number(primary_time_integrated,secondary_time_integrated,significance_level,"ON")
 
                         print('same_signal integrated',check_same_signal_number_integrated)
 
@@ -699,7 +710,7 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
                             if passes_integrated:
                                 # also check if there was just a dim signal in the first OFF, maybe it gets stronger in second bin.                             
                                 #can also check if same # of signals in middle of next row
-                                same_signal_number_middle, middle_signal_number = check_same_signal_number(row_ON,secondary_obs[8],significance_level)
+                                same_signal_number_middle, middle_signal_number = check_same_signal_number(row_ON,secondary_obs[8],significance_level,"ON")
                                 print('same_signal_number_middle',same_signal_number_middle)
 
 
@@ -731,25 +742,33 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
 
                                         on_boundaries = [obs1_row1,obs2_row1,obs2_row16,obs3_row1,obs3_row16]
                                         on_boundaries_snrs = []
-
+                                        number_of_peaks = []
                                         for boundary in on_boundaries:
                                             boundary_snr, boundary_threshold = get_snr(boundary,significance_level)
+                                            quant = np.quantile(boundary,.85)
+                                            lower_slice = boundary[boundary < quant]
+                                            sigma = np.std(lower_slice)
+                                            peaks, properties = signal.find_peaks(boundary, prominence=significance_level*sigma, width=1)
+                                            if len(peaks)>0:
+                                                boundary_snr = True
+
                                             on_boundaries_snrs.append(boundary_snr)
+                                            number_of_peaks.append(len(peaks))
 
                                         # we require that there must be a strong signal at the boundary of at least two other ON observations
                                         number_strong_boundaries = 0
-                                        for snr in on_boundaries_snrs:
-                                            if snr == True:
+                                        for b in range(0,len(on_boundaries_snrs)):
+                                            if on_boundaries_snrs[b] == True and number_of_peaks[b] >= initial_signal_number:
                                                 number_strong_boundaries += 1
 
                                         if number_strong_boundaries <=1:
                                             signal_stays_strong = False
 
-                                        boundaries_summed = obs1_row1+obs2_row1+obs2_row16+obs3_row1+obs3_row16
+                                        boundaries_summed = obs2_row1+obs2_row16+obs3_row1+obs3_row16
                                         boundaries_summed = boundaries_summed/np.max(boundaries_summed)
-                                        boundary_drift = drift_index_checker(boundaries_summed, row_ON,significance_level,10)
+                                        boundary_drift = drift_index_checker(boundaries_summed, row_ON,significance_level,significance_level)
 
-                                        if boundary_drift==False:
+                                        if boundary_drift==False and signal_stays_strong:
                         
                                             # Final check will be to see if all the signal that set off the hotspot are in the same place when you sum the whole observation
                                             # time intensive bc we are loading all the data, so this is a very last check
@@ -774,6 +793,9 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
                                             
                                             on_sum = obs1_int+obs3_int+obs5_int
                                             whole_sum = obs1_int+obs3_int+obs5_int+obs2_int+obs4_int+obs6_int
+                                                                                    # subtract primary obs so it does not bias it
+                                            whole_sum -= primary_obs.sum(axis=0)
+
 
                                             on_sum = on_sum/np.max(on_sum)
                                             whole_sum = whole_sum/np.max(whole_sum)
@@ -829,19 +851,22 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
                                             if zero_drift == False and (stronger_k_in_ONs >=2 or strong_k_in_ONs>=2): 
                                                 # check other boundaries
                                                 # first load boundary data
-                                                row_ON2, row_OFF2 = get_boundary_data(hf_obs2,hf_obs3,lower,upper,edge)
+
+                                                # make sure to label correctly which ones come from ON target observations and which ones from OFF target observations
+                                                # we will end up returning the number of signals in the OFF target observations, as another check to see if they are > than the ON
+                                                row_OFF2, row_ON2 = get_boundary_data(hf_obs2,hf_obs3,lower,upper,edge)
                                                 row_ON3, row_OFF3 = get_boundary_data(hf_obs3,hf_obs4,lower,upper,edge)
-                                                row_ON4, row_OFF4 = get_boundary_data(hf_obs4,hf_obs5,lower,upper,edge)
+                                                row_OFF4, row_ON4 = get_boundary_data(hf_obs4,hf_obs5,lower,upper,edge)
                                                 row_ON5, row_OFF5 = get_boundary_data(hf_obs5,hf_obs6,lower,upper,edge)
 
                                                 # check signal numbers at boundaries
-                                                same_signal_2, num_signals_2 = check_same_signal_number(row_ON2,row_OFF2,significance_level)
+                                                same_signal_2, num_signals_2 = check_same_signal_number(row_ON2,row_OFF2,significance_level,"OFF")
                                                 # boundary 3/5
-                                                same_signal_3,num_signals_3 = check_same_signal_number(row_ON3,row_OFF3,significance_level)
+                                                same_signal_3,num_signals_3 = check_same_signal_number(row_ON3,row_OFF3,significance_level,"OFF")
                                                 # boundary 4/5
-                                                same_signal_4,num_signals_4 = check_same_signal_number(row_ON4,row_OFF4,significance_level)
+                                                same_signal_4,num_signals_4 = check_same_signal_number(row_ON4,row_OFF4,significance_level,"OFF")
                                                 # boundary 5/5
-                                                same_signal_5,num_signals_5 = check_same_signal_number(row_ON5,row_OFF5,significance_level)
+                                                same_signal_5,num_signals_5 = check_same_signal_number(row_ON5,row_OFF5,significance_level,"OFF")
 
                                                 same_signals = [same_signal_2,same_signal_3,same_signal_4,same_signal_5]
 
@@ -852,6 +877,9 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
 
                                                 for num in range(0,4):
                                                     # its not okay to have less signals (good signals might drift out of region), but it is okay to have = or > than initial
+                                                    print(same_signals[num])
+                                                    print('num',num_signals[num])
+                                                    print('initial',initial_signal_number)
                                                     if same_signals[num] == True and num_signals[num] >= initial_signal_number:
                                                         num_same_signals +=1
 
@@ -871,7 +899,9 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
                                                 range_maxes = [np.ptp(obs_time_maxes[0]),np.ptp(obs_time_maxes[1]),np.ptp(obs_time_maxes[2])]
 
                                                 # only return ones with low correlation on all boundaries.
+                                                # only one of the boundaries would have floated out, in theory?
                                                 if num_same_signals == 0:
+                                                    print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX SIGNAL FOUND XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
                                                     low_correlations.append(i)
                                                     scores.append(k_score)
                                                     ranges.append(range_maxes)
@@ -920,7 +950,7 @@ def check_broadband(obs1):
     return blip_or_broadband
 
 
-def check_same_signal_number(row_ON,row_OFF,significance_level):
+def check_same_signal_number(row_ON,row_OFF,significance_level,on_off):
     
     row_ON = row_ON/np.max(row_ON)
     row_OFF = row_OFF/np.max(row_OFF)
@@ -976,21 +1006,29 @@ def check_same_signal_number(row_ON,row_OFF,significance_level):
             else:
                 filtered_indicesON.append(i)
                 
-        if len(indicesOFF) != 0:
-            filtered_indicesOFF = [indicesOFF[0]]
-            for i in indicesOFF[1:]:
-                if abs(filtered_indicesOFF[-1] - i) <10:
-                    last = filtered_indicesOFF[-1]
-                    filtered_indicesOFF.pop()
-                    filtered_indicesOFF.append(np.mean([last,i]))
-                else:
-                    filtered_indicesOFF.append(i)
+    if len(indicesOFF) != 0:
+        filtered_indicesOFF = [indicesOFF[0]]
+        for i in indicesOFF[1:]:
+            if abs(filtered_indicesOFF[-1] - i) <10:
+                last = filtered_indicesOFF[-1]
+                filtered_indicesOFF.pop()
+                filtered_indicesOFF.append(np.mean([last,i]))
+            else:
+                filtered_indicesOFF.append(i)
 
         
-        if len(filtered_indicesON) <= len(filtered_indicesOFF):
-            same_signal_number = True
+    all = 0
+    for i in filtered_indicesON:
+        for j in filtered_indicesOFF:
+            if abs(i-j) < 100:
+                all +=1 
+    if all >= len(filtered_indicesON):
+        same_signal_number = True
 
-    num_signals = len(filtered_indicesON)
+    if on_off == "OFF":
+        num_signals = len(filtered_indicesOFF)
+    if on_off == "ON":
+        num_signals = len(filtered_indicesON)
 
 
     return same_signal_number, num_signals
@@ -1257,7 +1295,7 @@ def main_boundary_checker(h5_files,pearson_threshold,block_size,significance_lev
     # find regions of low correlation
     low_correlations,scores,ranges,failures = check_hotspots([last_time_row_ON],primary_off,hf_ON,hf_OFF,hf_ON2,hf_OFF2,hf_ON3,hf_OFF3,filtered_hotspots,pearson_threshold,significance_level,edge,block_size,filtered_hotspots_slice_indexes,filtered_hotspots)
     print(f"Found {len(low_correlations)} regions of low correlation")
-
+    print(low_correlations)
     # save regions to csv file, in current directory
     failure_frequencies = [fch1+foff*(i*block_size) for i in failures]
     # return frequency positions of candidates
