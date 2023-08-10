@@ -188,7 +188,8 @@ def main():
             reloaded_batches = pickle.load(f)
         
         # choose subset of all cadences (batches of 5000)
-        all_file_paths = reloaded_batches[batch_number] 
+        if batch_number != '':
+            all_file_paths = reloaded_batches[batch_number] 
 
         if target_line != '':
 
@@ -405,12 +406,14 @@ def get_snr(sliced,sigma_multiplier):
     sliced = sliced/np.max(sliced)
 
     # remove top 30 percent of values to get real baseline (in case there are many high value signals). 
-    lower_quantile = np.quantile(sliced,.85)
-    lower_slice = sliced[sliced < lower_quantile]
+    # lower_quantile = np.quantile(sliced,.85)
+    # lower_slice = sliced[sliced < lower_quantile]
 
-    # get median and standard deviation of baseline
-    median = np.median(lower_slice)
-    sigma = np.std(lower_slice)
+    # # get median and standard deviation of baseline
+    median = np.median(sliced)
+    # sigma = np.std(lower_slice)
+
+    sigma = scipy.stats.median_abs_deviation(sliced)
 
     # calcualate threshold as median of baseline + SNR * standard deviation
     threshold = median+sigma_multiplier*sigma
