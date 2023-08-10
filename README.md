@@ -63,10 +63,11 @@ This code is meant to be run on data from Berkeley's Breakthrough Listen group, 
 
 ### Expected Input File Format
 
-Cappuccino is built to read in and analyze HDF5 files. Unlike **turboSETI**, **cappuccino** runs on the entire cadence at a time, not individual observations. In doing so, it takes direct advantage of the ON/OFF cadence described above. There are three options for inputting file formats:
+Cappuccino is built to read in and analyze HDF5 files. Unlike **turboSETI**, **cappuccino** runs on the entire cadence at a time, not individual observations. In doing so, it takes direct advantage of the ON/OFF cadence described above. There are four options for inputting file formats:
 1. Giving the directory path containing the .h5 files.
 2. Giving the path to a text file which holds the .h5 file paths.
 3. Giving a batch number to be run on, in which case it will run on one of the 1000 batches that make up the archival GBT observation database.
+4. Giving a target to be run on, in the format [Target ID, MJD Date Observed, Node]. 
 
 If these options are not sufficient, the code is well documented and users can edit it to pass in their own files.
 
@@ -84,6 +85,7 @@ To briefly summarize them:
 - `files`: Described above, the directory path containing the .h5 files.
 - `directory`: Described above, the path to a text file which holds the .h5 file paths.
 - `number`: Described above, the specific batch of GBT data.
+- `target`: Described above, the specific target in the archival GBT data.
 
 
 ### Usage as a Python Package
