@@ -44,7 +44,7 @@ def main():
     parser.add_argument('-e', '--edge',dest='edge', help="maximum drift rate in units of frequency bin (~2.79 Hz)",default=50,action="store")
     parser.add_argument('-f', '--files',dest='files', help="path to text file with files list",default='',action="store")
     parser.add_argument('-d', '--directory',dest='directory', help="directory with cadences in it",default='',action="store")
-    parser.add_argument('-n', '--number',dest='number', help="batch number of archival GBT data compilation",default=0,action="store")
+    parser.add_argument('-n', '--number',dest='number', help="batch number of archival GBT data compilation",default='',action="store")
     parser.add_argument('-t', '--target',dest='target', help="target desired: [Target Name, Day, Node]",default='',action="store")
 
     args = vars(parser.parse_args())
@@ -65,8 +65,10 @@ def main():
     
     target_line = args["target"]
 
-
-    batch_number = int(args["number"])
+    try:
+        batch_number = int(args["number"])
+    except:
+        batch_number = ''
 
     print("block_size:",block_size)
     # check if candidates database is set up, if not then initialize it. This is where the candidates will be stored
@@ -122,7 +124,7 @@ def main():
 
 
     # if we pass in a directory of files it just iterates over the files in galaxy directory
-    if files == '' and target_line == '' and directory == '' and batch_number == '':
+    if files == '' and target_line == '' and batch_number == '':
 
         for target in target_list:        
             print("Running boundary checker for target:",target)
@@ -1006,24 +1008,24 @@ def check_same_signal_number(row_ON,row_OFF,significance_level,on_off):
             else:
                 filtered_indicesON.append(i)
                 
-    if len(indicesOFF) != 0:
-        filtered_indicesOFF = [indicesOFF[0]]
-        for i in indicesOFF[1:]:
-            if abs(filtered_indicesOFF[-1] - i) <10:
-                last = filtered_indicesOFF[-1]
-                filtered_indicesOFF.pop()
-                filtered_indicesOFF.append(np.mean([last,i]))
-            else:
-                filtered_indicesOFF.append(i)
+        if len(indicesOFF) != 0:
+            filtered_indicesOFF = [indicesOFF[0]]
+            for i in indicesOFF[1:]:
+                if abs(filtered_indicesOFF[-1] - i) <10:
+                    last = filtered_indicesOFF[-1]
+                    filtered_indicesOFF.pop()
+                    filtered_indicesOFF.append(np.mean([last,i]))
+                else:
+                    filtered_indicesOFF.append(i)
 
         
-    all = 0
-    for i in filtered_indicesON:
-        for j in filtered_indicesOFF:
-            if abs(i-j) < 100:
-                all +=1 
-    if all >= len(filtered_indicesON):
-        same_signal_number = True
+        all = 0
+        for i in filtered_indicesON:
+            for j in filtered_indicesOFF:
+                if abs(i-j) < 100:
+                    all +=1 
+        if all >= len(filtered_indicesON):
+            same_signal_number = True
 
     if on_off == "OFF":
         num_signals = len(filtered_indicesOFF)
