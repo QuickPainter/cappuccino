@@ -70,7 +70,6 @@ def main():
     except:
         batch_number = ''
 
-    print("block_size:",block_size)
     # check if candidates database is set up, if not then initialize it. This is where the candidates will be stored
     # main_dir = os.getcwd() + "/"
 
@@ -182,13 +181,14 @@ def main():
                 print(traceback.print_exc())
     
     else:
-        print("running on input files, batch #",batch_number)
         # load all files
         with open('/mnt_blpc1/datax/scratch/calebp/boundaries/cappuccino/all_batches_all_cadences_1000.pkl', 'rb') as f:
             reloaded_batches = pickle.load(f)
         
         # choose subset of all cadences (batches of 5000)
         if batch_number != '':
+            print("running on input files, batch #",batch_number)
+
             all_file_paths = reloaded_batches[batch_number] 
 
         if target_line != '':
