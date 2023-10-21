@@ -90,11 +90,7 @@ To briefly summarize them:
 
 ### Usage as a Python Package
 
-```
-from turbo_seti.find_doppler.find_doppler import FindDoppler
-fdop = FindDoppler(datafile=my_HDF5_file, ...)
-fdop.search(...)
-```
+to be finished...
 
 
 
