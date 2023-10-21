@@ -62,7 +62,12 @@ def main(file_selection, target_files):
     # check if candidates database is set up, if not then initialize it. This is where the candidates will be stored
     # main_dir = os.getcwd() + "/"
 
+
+    # set this directory as where you want your candidates databases to be stored
     main_dir = '/mnt_blpc1/datax/scratch/calebp/cappuccino_runs/'
+    print("###### Currently Storing Candidates Databases at: ", main_dir)
+    print("###### If this is not your own specific local directory, change it to that ######")
+
 
 
     if files == '' and target_line == '' and directory == '' and batch_number == '':
