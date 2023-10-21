@@ -1162,7 +1162,7 @@ def drift_index_checker(whole_sum, row_ON,significance_level,min_distance):
     summed_indices = np.where(np.array(whole_sum) > summed_threshold)[0].tolist()
 
     # average any points very close together
-    print(hotspot_indices,summed_indices)
+    # print(hotspot_indices,summed_indices)
 
 
     if len(hotspot_indices) != 0 and len(summed_indices) != 0:
@@ -1192,7 +1192,7 @@ def drift_index_checker(whole_sum, row_ON,significance_level,min_distance):
                     all +=1 
         if all >= len(filtered_hotspot_indices):
             zero_drift = True
-        print(filtered_hotspot_indices,filtered_summed_indices)
+        # print(filtered_hotspot_indices,filtered_summed_indices)
 
     return zero_drift
 
