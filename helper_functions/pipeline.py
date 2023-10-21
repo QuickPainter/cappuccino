@@ -628,7 +628,7 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
             hotspot_slice = filtered_hotspots_indexes[hotspot_index]
 
             hotspot_slices = [0,1,2]
-            print(hotspot_slice)
+            # print(hotspot_slice)
 
             primary_hf_ON = observations_ON[hotspot_slice]
             primary_hf_OFF = observations_OFF[hotspot_slice]
