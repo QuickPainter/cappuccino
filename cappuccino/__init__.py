@@ -88,9 +88,12 @@ def main():
         target_node = target_info[2]
         df_name = f'target_{target_name}_date_{target_date}_node_{target_node}_sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
         failures_name = f'failed_target_{target_name}_date_{target_date}_node_{target_node}_sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
-    else:
+    elif batch_number != '':
         df_name = f'all_batches_number_{batch_number}_sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
         failures_name = f'failed_all_batches_number_{batch_number}_sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
+    elif directory != '':
+        df_name = f'directory_{directory}_sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
+        failures_name = f'failed_directory_{directory}_sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
 
 
     # initialize candidates db
@@ -113,8 +116,8 @@ def main():
 
 
     # define the target list you want to search through. These should be folders in the current directory, with .h5 files of entire cadences in each of them
-    # target_list = ['AND_II','AND_I', 'AND_X', 'AND_XI', 'AND_XIV', 'AND_XVI', 'AND_XXIII', 'AND_XXIV', 'BOL520', 'CVNI', 'DDO210', 'DRACO', 'DW1','HERCULES', 'HIZSS003', 'IC0010', 'IC0342', 'IC1613', 'LEOA', 'LEOII', 'LEOT', 'LGS3', 'MAFFEI1', 'MAFFEI2', 'MESSIER031', 'MESSIER033', 'MESSIER081', 'MESSIER101', 'MESSIER49', 'MESSIER59', 'MESSIER84', 'MESSIER86', 'MESSIER87', 'NGC0185', 'NGC0628', 'NGC0672 ', 'NGC1052', 'NGC1172 ', 'NGC1400', 'NGC1407', 'NGC2403','NGC2683', 'NGC2787', 'NGC3193', 'NGC3226', 'NGC3344', 'NGC3379', 'NGC4136', 'NGC4168', 'NGC4239', 'NGC4244', 'NGC4258', 'NGC4318', 'NGC4365', 'NGC4387', 'NGC4434', 'NGC4458', 'NGC4473', 'NGC4478', 'NGC4486B', 'NGC4489', 'NGC4551', 'NGC4559', 'NGC4564', 'NGC4600', 'NGC4618', 'NGC4660', 'NGC4736', 'NGC4826', 'NGC5194', 'NGC5195', 'NGC5322', 'NGC5638', 'NGC5813', 'NGC5831', 'NGC584', 'NGC5845', 'NGC5846', 'NGC596', 'NGC636', 'NGC6503', 'NGC6822', 'NGC6946', 'NGC720', 'NGC7454 ', 'NGC7640', 'NGC821', 'PEGASUS', 'SAG_DIR', 'SEXA', 'SEXB', 'SEXDSPH', 'UGC04879', 'UGCA127', 'UMIN']
-    target_list = [directory]
+    target_list = ['AND_II','AND_I', 'AND_X', 'AND_XI', 'AND_XIV', 'AND_XVI', 'AND_XXIII', 'AND_XXIV', 'BOL520', 'CVNI', 'DDO210', 'DRACO', 'DW1','HERCULES', 'HIZSS003', 'IC0010', 'IC0342', 'IC1613', 'LEOA', 'LEOII', 'LEOT', 'LGS3', 'MAFFEI1', 'MAFFEI2', 'MESSIER031', 'MESSIER033', 'MESSIER081', 'MESSIER101', 'MESSIER49', 'MESSIER59', 'MESSIER84', 'MESSIER86', 'MESSIER87', 'NGC0185', 'NGC0628', 'NGC0672 ', 'NGC1052', 'NGC1172 ', 'NGC1400', 'NGC1407', 'NGC2403','NGC2683', 'NGC2787', 'NGC3193', 'NGC3226', 'NGC3344', 'NGC3379', 'NGC4136', 'NGC4168', 'NGC4239', 'NGC4244', 'NGC4258', 'NGC4318', 'NGC4365', 'NGC4387', 'NGC4434', 'NGC4458', 'NGC4473', 'NGC4478', 'NGC4486B', 'NGC4489', 'NGC4551', 'NGC4559', 'NGC4564', 'NGC4600', 'NGC4618', 'NGC4660', 'NGC4736', 'NGC4826', 'NGC5194', 'NGC5195', 'NGC5322', 'NGC5638', 'NGC5813', 'NGC5831', 'NGC584', 'NGC5845', 'NGC5846', 'NGC596', 'NGC636', 'NGC6503', 'NGC6822', 'NGC6946', 'NGC720', 'NGC7454 ', 'NGC7640', 'NGC821', 'PEGASUS', 'SAG_DIR', 'SEXA', 'SEXB', 'SEXDSPH', 'UGC04879', 'UGCA127', 'UMIN']
+    # target_list = [directory]
     candidates = pd.read_csv(main_dir+df_name)
     failures_db = pd.read_csv(main_dir+failures_name)
     # iterate through each target, grabbing the correct files. Files get grouped in cadences by node number and put in a list. 
@@ -124,7 +127,7 @@ def main():
 
     # if we pass in a directory of files it just iterates over the files in galaxy directory
     if files == '' and target_line == '' and batch_number == '':
-
+        targets_dir = os.getcwd()
         for target in target_list:        
             print("Running boundary checker for target:",target)
             unique_h5_files,unique_nodes = get_all_h5_files(target)
@@ -132,7 +135,7 @@ def main():
             count = sum( [ len(listElem) for listElem in unique_h5_files])
             print(f"{count} files")
             # change back into main directory
-            os.chdir(main_dir)
+            os.chdir(targets_dir)
 
             try:
                 # iterate through each node (cadence)
@@ -770,8 +773,10 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
                                             signal_stays_strong = False
 
                                         boundaries_summed = obs2_row1+obs2_row16+obs3_row1+obs3_row16
+                                          
                                         boundaries_summed = boundaries_summed/np.max(boundaries_summed)
-                                        boundary_drift = drift_index_checker(boundaries_summed, row_ON,significance_level,significance_level)
+
+                                        boundary_drift = drift_index_checker(boundaries_summed, row_ON,significance_level,10)
 
                                         if boundary_drift==False and signal_stays_strong:
                         

@@ -22,7 +22,7 @@ import pickle
 import gc
 
 
-def main(batch_number):
+def main(file_selection, target_files):
     """This is the main function.
 
     Args:
@@ -33,7 +33,7 @@ def main(batch_number):
     ## load all parameters of the pipeline
 
     # block size is how large of a frequency range we iterate over while searching for signals
-    block_size = 2048
+    block_size = 4096
     # the minimum correlation score required to reject a signal as being strongly correlated.
     pearson_threshold = .7
     # significance level is how strong a signal must be so that we flag the area and do a more detailed filtering.
@@ -44,7 +44,16 @@ def main(batch_number):
 
     directory = ''
     files = ''
-    target_line = ''
+    batch_number = ''
+    target_line  = ''
+
+    # if selecting a batch number
+    if file_selection == '-n':
+        batch_number = int(target_files)
+    if file_selection == '-t':
+        print("files for specific target")
+        target_line = target_files
+
     # directory = input("Input a directory if you want to run on a directory:")
     # files = input("Input a file path if you want to run on paths in a file:")
     # target_line = input("Input a target if you want to run on a specific target:")
@@ -68,6 +77,7 @@ def main(batch_number):
         target_node = target_info[2]
         df_name = f'target_{target_name}_date_{target_date}_node_{target_node}_sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
         failures_name = f'failed_target_{target_name}_date_{target_date}_node_{target_node}_sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
+        print('initializing df at',df_name)
     else:
         df_name = f'all_batches_number_{batch_number}_sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
         failures_name = f'failed_all_batches_number_{batch_number}_sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
@@ -167,7 +177,10 @@ def main(batch_number):
             reloaded_batches = pickle.load(f)
         
         # choose subset of all cadences (batches of 5000)
-        all_file_paths = reloaded_batches[batch_number] 
+            # choose subset of all cadences (batches of 5000)
+        if batch_number != '':
+            print("running on input files, batch #",batch_number)
+            all_file_paths = reloaded_batches[batch_number] 
 
         if target_line != '':
 
@@ -605,7 +618,7 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
         
         try:
             dt = datetime.now()
-            print('time start',dt.microsecond/1000)
+            # print('time start',dt.microsecond/1000)
             # load the observations for off and ON. Last time bin for first obs, first time bin for seond obs
             # find the correct obs based on the filter index
             observations_ON = [hf_obs1,hf_obs3,hf_obs5]
@@ -645,16 +658,16 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
             same_signal_number, initial_signal_number = check_same_signal_number(row_ON,row_OFF,significance_level,"ON")
 
             dt = datetime.now()
-            print('time signal',dt.microsecond/1000)
+            # print('time signal',dt.microsecond/1000)
 
 
             if same_signal_number==False:
-                print("checking correlation")
+                # print("checking correlation")
 
                 # if it passes these two initial checks, perform pearson correlation check
                 max_corr, current_shift = pearson_slider(row_ON,row_OFF,pearson_threshold,edge)
                 dt = datetime.now()
-                print('time corr',dt.microsecond/1000)
+                # print('time corr',dt.microsecond/1000)
 
                 if max_corr < pearson_threshold:
                     # Now check if it is broadband RFI:
@@ -667,12 +680,12 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
 
                     # we can also check the last ON row with the entire ON observation summed
                     not_drifting = drift_index_checker(primary_obs[0], row_ON,significance_level,3)
-                    print("not drifting",not_drifting)
-                    print("is broadband",is_broadband)
-                    print("is_blip",is_blip)
+                    # print("not drifting",not_drifting)
+                    # print("is broadband",is_broadband)
+                    # print("is_blip",is_blip)
 
                     dt = datetime.now()
-                    print('time drift',dt.microsecond/1000)
+                    # print('time drift',dt.microsecond/1000)
 
                     if is_broadband == False and not_drifting == False and is_blip == False:
                         # load entire observation and see if time-summing the signal produces different result --> signal might be weak
@@ -682,31 +695,31 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
                         # first check same signal number:
                         check_same_signal_number_integrated, integrated_signal_number = check_same_signal_number(primary_time_integrated,secondary_time_integrated,significance_level,"ON")
 
-                        print('same_signal integrated',check_same_signal_number_integrated)
+                        # print('same_signal integrated',check_same_signal_number_integrated)
 
                         if check_same_signal_number_integrated == False:
 
                             # then check if integreated pearson correlation is high
                             passes_integrated,integrated_pearson_score = second_filter(primary_time_integrated,secondary_time_integrated,pearson_threshold,edge)
-                            print('passes integrated',passes_integrated)
+                            # print('passes integrated',passes_integrated)
 
                             if passes_integrated:
                                 # also check if there was just a dim signal in the first OFF, maybe it gets stronger in second bin.                             
                                 #can also check if same # of signals in middle of next row
                                 same_signal_number_middle, middle_signal_number = check_same_signal_number(row_ON,secondary_obs[8],significance_level,"ON")
-                                print('same_signal_number_middle',same_signal_number_middle)
+                                # print('same_signal_number_middle',same_signal_number_middle)
 
 
                                 if same_signal_number_middle == False:
                                     # finally do a correlation check --> maybe that is problem
                                     second_row_corr,current_shift = pearson_slider(row_ON,secondary_obs[8],pearson_threshold,edge)
-                                    print('second_row_corr',second_row_corr)
+                                    # print('second_row_corr',second_row_corr)
 
 
                                     if second_row_corr < pearson_threshold:
                                     # if it passes these tests, check if it zero drift rate. Compare first time from first ON observation to last OFF.
                                     # if it has high correlation at drift rate = 0, then probably not good 
-                                        print("Checking Drift Rate and Signal Strength")
+                                        # print("Checking Drift Rate and Signal Strength")
                         
                                         # sum whole observation and see if zero drift rate, if necessary
                         
@@ -755,7 +768,7 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
                         
                                             # Final check will be to see if all the signal that set off the hotspot are in the same place when you sum the whole observation
                                             # time intensive bc we are loading all the data, so this is a very last check
-                                            print("Second drift check")
+                                            # print("Second drift check")
                                             Obs1 = np.squeeze(hf_obs1['data'][:,:,lower:upper],axis=1)
                                             obs1_int = Obs1.sum(axis=0)
 
@@ -860,9 +873,9 @@ def check_hotspots(hotspot_slice_data,first_off,hf_obs1,hf_obs2,hf_obs3,hf_obs4,
 
                                                 for num in range(0,4):
                                                     # its not okay to have less signals (good signals might drift out of region), but it is okay to have = or > than initial
-                                                    print(same_signals[num])
-                                                    print('num',num_signals[num])
-                                                    print('initial',initial_signal_number)
+                                                    # print(same_signals[num])
+                                                    # print('num',num_signals[num])
+                                                    # print('initial',initial_signal_number)
                                                     if same_signals[num] == True and num_signals[num] >= initial_signal_number:
                                                         num_same_signals +=1
 
@@ -1288,7 +1301,9 @@ def main_boundary_checker(h5_files,pearson_threshold,block_size,significance_lev
 
 
 if __name__ == '__main__':
-    batch_number = sys.argv[1]
-    batch_number = int(batch_number)
-    main(batch_number)
+    
+    # file selection can be either batch number or target [name,mjd,node]
+    file_selection = sys.argv[1]
+    target_files = sys.argv[2]
+    main(file_selection, target_files)
 
