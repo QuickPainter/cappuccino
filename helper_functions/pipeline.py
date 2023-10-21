@@ -175,20 +175,19 @@ def main(file_selection, target_files):
 
                 print(traceback.print_exc())
     
+    # if we don't pass in a directory of files, we're either passing in a batch number or a specific cadence
     else:
-        print("running on input files, batch #",batch_number)
         # load all files
         with open('/mnt_blpc1/datax/scratch/calebp/boundaries/cappuccino/all_batches_all_cadences_1000.pkl', 'rb') as f:
             reloaded_batches = pickle.load(f)
         
-        # choose subset of all cadences (batches of 5000)
-            # choose subset of all cadences (batches of 5000)
+        # if a batch number, choose subset of all cadences (batches of 5000)
         if batch_number != '':
             print("running on input files, batch #",batch_number)
             all_file_paths = reloaded_batches[batch_number] 
 
+        # if a specific cadence, choose the target from a compilation of all archival GBT observations
         if target_line != '':
-
             print("TARGET:",target_name,target_date,target_node)
             all_file_paths = [find_cadence(target_name,target_date,target_node,reloaded_batches)]
 
