@@ -53,6 +53,13 @@ def main(file_selection, target_files):
     if file_selection == '-t':
         print("files for specific target")
         target_line = target_files
+    if file_selection == '-f':
+        print("textfile with target cadences")
+        my_file = open(target_files, "r") 
+        path_data = my_file.read() 
+        text_file_paths = list(eval(path_data))
+        my_file.close() 
+
 
     # directory = input("Input a directory if you want to run on a directory:")
     # files = input("Input a file path if you want to run on paths in a file:")
@@ -70,10 +77,12 @@ def main(file_selection, target_files):
 
 
 
-    if files == '' and target_line == '' and directory == '' and batch_number == '':
+    if files == '' and target_line == '' and directory == '' and batch_number == '' and text_file_paths == '':
         df_name = f'default_candidate_events_sigma_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
         failures_name = f'failed_default_candidate_events_sigma_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
     elif target_line != '':
+        # for specific target passed in
+
         n = len(target_line)
         target_info = target_line[1:n-1]
         target_info = target_info.split(',')
@@ -83,7 +92,13 @@ def main(file_selection, target_files):
         df_name = f'target_{target_name}_date_{target_date}_node_{target_node}_sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
         failures_name = f'failed_target_{target_name}_date_{target_date}_node_{target_node}_sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
         print('initializing df at',df_name)
+    elif text_file_paths != '':
+        # for a text file of paths
+        df_name = f'text_file_paths___{target_files[:-4]}___sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
+        failures_name = f'failed_text_file_paths___{target_files[:-4]}___sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
+        print('initializing df at',df_name)
     else:
+        # for batch number
         df_name = f'all_batches_number_{batch_number}_sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
         failures_name = f'failed_all_batches_number_{batch_number}_sig_{significance_level}_pearsonthreshold_{int(pearson_threshold*10)}_blocksize_{block_size}_edge_{edge}.csv'
 
@@ -118,8 +133,7 @@ def main(file_selection, target_files):
 
 
     # if we pass in a directory of files it just iterates over the files in galaxy directory
-    if files == '' and target_line == '' and batch_number == '':
-
+    if files == '' and target_line == '' and batch_number == '' and text_file_paths=='':
         for target in target_list:        
             print("Running boundary checker for target:",target)
             unique_h5_files,unique_nodes = get_all_h5_files(target)
@@ -190,11 +204,17 @@ def main(file_selection, target_files):
         if target_line != '':
             print("TARGET:",target_name,target_date,target_node)
             all_file_paths = [find_cadence(target_name,target_date,target_node,reloaded_batches)]
+        
+        if file_selection == '-f':
+            print("Running on file paths passed in through text file")
+            all_file_paths = [text_file_paths]
 
         try:
             # iterate through each node (cadence)
             for i in range(0,len(all_file_paths)):
                 h5_files = all_file_paths[i]
+                print("FILES")
+                print(h5_files)
 
                 primary_file = h5_files[0]
                 name = primary_file.split('/')[-1]
